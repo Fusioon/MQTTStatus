@@ -1,0 +1,19 @@
+FileVersion = 1
+
+[Project]
+Name = "MQTTStatus"
+StartupObject = "MQTTStatus.Program"
+
+[Configs.Debug.Win64]
+TargetDirectory = "$(WorkspaceDir)/dist"
+TargetName = "$(ProjectName)_x64_d"
+CLibType = "Dynamic"
+LibPaths = ["$(WorkspaceDir)/paho-mqtt3c-static.lib", "Ws2_32.lib", "Advapi32.lib", "Crypt32.lib", "bufferoverflowu.lib", "Wtsapi32.lib"]
+DebugCommandArguments = "--debug"
+DebugWorkingDirectory = "$(ProjectDir)\\dist"
+
+[Configs.Release.Win64]
+TargetDirectory = "$(WorkspaceDir)/dist"
+TargetName = "$(ProjectName)_x64"
+CLibType = "Dynamic"
+LibPaths = ["$(WorkspaceDir)/paho-mqtt3c-static.lib", "Ws2_32.lib", "Advapi32.lib", "Crypt32.lib", "bufferoverflowu.lib", "Wtsapi32.lib"]

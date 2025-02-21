@@ -1,0 +1,5 @@
+FileVersion = 1
+Projects = {MQTTStatus = {Path = "."}}
+
+[Workspace]
+StartupProject = "MQTTStatus"
