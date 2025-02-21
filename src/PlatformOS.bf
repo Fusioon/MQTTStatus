@@ -271,12 +271,15 @@ abstract class PlatformOS
 
 			running = Update(deltaTime);
 
-			for (let component in _mqttComponents)
-			{
-				component.Publish(mqtt).IgnoreError();
-			}
+			mqtt.Update(deltaTime);
 
-			mqtt.Update();
+			if (mqtt.IsConnected)
+			{
+				for (let component in _mqttComponents)
+				{
+					component.Publish(mqtt).IgnoreError();
+				}
+			}
 		}
 
 		return .Ok;

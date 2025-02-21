@@ -37,8 +37,20 @@ class MQTTHandler
 	DeliveryToken _lastSentToken;
 	volatile DeliveryToken _lastDeliveredToken;
 
+	append String _credentialsUsername;
+	append String _credentialsPassword;
+	append List<uint8> _credentialsBinaryPwd;
+
+	MQTTClient_connectOptions _connOpts;
+
 	public Event<MessageReceivedDelegate> onMessageReceived ~ _.Dispose();
 	public Event<ConnectionLostDelegate> onConnectionLost ~ _.Dispose();
+
+	volatile bool _isConnected;
+	int64 _connectionRetryTimer;
+	int32 _connectionRetryCount;
+
+	public bool IsConnected => _isConnected;
 
 	static void MQTT_ConnectionLost(void* context, c_char* cause)
 	{
@@ -79,6 +91,8 @@ class MQTTHandler
 	{
 		if (onConnectionLost.HasListeners)
 			onConnectionLost(cause);
+
+		_isConnected = false;
 	}
 
 	public ~this()
@@ -92,7 +106,7 @@ class MQTTHandler
 
 	public Result<void> Init(StringView address, StringView clientId, ECredentials credentials = default)
 	{
-		MQTTClient_connectOptions conn_opts = .() {
+		_connOpts = .() {
 			struct_id = "MQTC",
 			struct_version = 6,
 			keepAliveInterval = 60,
@@ -116,15 +130,21 @@ class MQTTHandler
 		case .None:
 		case .Pwd(let username, let password):
 			{
-				conn_opts.username = username.ToScopeCStr!::();
-				conn_opts.password = password.ToScopeCStr!::();
+				_credentialsUsername.Set(username);
+				_credentialsPassword.Set(password);
+
+				_connOpts.username = _credentialsUsername.CStr();
+				_connOpts.password = _credentialsPassword.CStr();
 			}
 		case .Binary(let username, let data):
 			{
-				conn_opts.username = username.ToScopeCStr!::();
-				conn_opts.binarypwd = .(){
-					len = (.)data.Length,
-					data = data.Ptr
+				_credentialsUsername.Set(username);
+				_credentialsBinaryPwd.AddRange(data);
+
+				_connOpts.username = _credentialsUsername.CStr();
+				_connOpts.binarypwd = .(){
+					len = (.)_credentialsBinaryPwd.Count,
+					data = _credentialsBinaryPwd.Ptr
 				};
 			}
 		}
@@ -135,23 +155,39 @@ class MQTTHandler
 				return .Err;
 		}
 
-		conn_opts.keepAliveInterval = 20;
-		conn_opts.cleansession = 1;
+		_connOpts.keepAliveInterval = 20;
+		_connOpts.cleansession = 1;
 
 		MQTTClient_setCallbacks(_client, Internal.UnsafeCastToPtr(this), => MQTT_ConnectionLost, => MQTT_MessageArrived, => MQTT_MessageDelivered);
 
 		{
-			let rc = MQTTClient_connect(_client, &conn_opts);
+			let rc = MQTTClient_connect(_client, &_connOpts);
 			if (rc != MQTTCLIENT_SUCCESS)
 				return .Err;
 		}
 
+		_isConnected = true;
 		return .Ok;
 	}
 
-	public void Update()
+	public void Update(double dt)
 	{
-		
+		if (!_isConnected)
+		{
+			_connectionRetryTimer -= (.)dt;
+			if (_connectionRetryTimer <= 0)
+			{
+				_connectionRetryCount++;
+				_connectionRetryTimer = Math.Max(_connectionRetryCount * 2000, 16000);
+
+				let rc = MQTTClient_connect(_client, &_connOpts);
+				if (rc == MQTTCLIENT_SUCCESS)
+				{
+					_connectionRetryCount = 0;
+					_isConnected = true;
+				}
+			}
+		}
 	}
 
 	public Result<DeliveryToken> SendMessage(StringView topic, StringView msg, int32 qos = 1, bool retained = false)
