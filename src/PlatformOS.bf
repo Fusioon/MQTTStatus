@@ -144,49 +144,39 @@ abstract class PlatformOS
 	{
 		MQTTHandler mqtt = scope .();
 
-		INIT:
-		do
+		MQTTHandler.ECredentials credentials;
+
+		if (cfg.BinaryPwdPath.IsEmpty)
 		{
-			MQTTHandler.ECredentials credentials;
-
-			if (cfg.BinaryPwdPath.IsEmpty)
-			{
-				if (cfg.Username.IsEmpty && cfg.Password.IsEmpty)
-					credentials = .None;
-				else
-					credentials = .Pwd(cfg.Username, cfg.Password);
-			}
+			if (cfg.Username.IsEmpty && cfg.Password.IsEmpty)
+				credentials = .None;
 			else
+				credentials = .Pwd(cfg.Username, cfg.Password);
+		}
+		else
+		{
+			List<uint8> buffer = scope:: .();
+			if (System.IO.File.ReadAll(cfg.BinaryPwdPath, buffer) case .Err(let err))
 			{
-				List<uint8> buffer = scope:: .();
-				if (System.IO.File.ReadAll(cfg.BinaryPwdPath, buffer) case .Err(let err))
-				{
-					Log.Error(scope $"Failed to read BinaryPwd ({err}) path: '{cfg.BinaryPwdPath}'");
-					return .Err;
-				}
-				credentials = .Binary(cfg.Username, buffer);
+				Log.Error(scope $"Failed to read BinaryPwd ({err}) path: '{cfg.BinaryPwdPath}'");
+				return .Err;
 			}
+			credentials = .Binary(cfg.Username, buffer);
+		}
 
-			int32 retries = (.)cfg.RetryCount;
-			while (retries > 0)
-			{
-				if (mqtt.Init(cfg.Address, cfg.ClientId, credentials) case .Ok)
-				{
-					break INIT;
-				}
-				retries--;
-				System.Threading.Thread.Sleep((.)cfg.RetryDelay);
-			}
-
+		if (mqtt.Init(cfg.Address, cfg.ClientId, credentials) case .Err)
+		{
 			Log.Error("Failed to init MQTT");
 			return .Err;
 		}
 		Log.Success("MQTT Initialized");
 
-		_monitorState = AddComponent(.. new MQTTSensor(nameof(MONITOR_STATE_TOPIC), FormatPayloadsString(.. scope .(MONITOR_STATE_TOPIC), cfg, false)));
-		_loginState = AddComponent(.. new MQTTSensor(nameof(CURRENT_USER_TOPIC), FormatPayloadsString(.. scope .(CURRENT_USER_TOPIC), cfg, false)));
-		_powerState = AddComponent(.. new MQTTSensor(nameof(SYSTEM_STATE_TOPIC), FormatPayloadsString(.. scope .(SYSTEM_STATE_TOPIC), cfg, false)));
-		{
+		bool? failedDiscovery = null;
+		mqtt.onConnect.Add(new [?]() => {
+
+			if (failedDiscovery != null)
+				return;
+
 			let topic = FormatPayloadsString(.. scope .(DISCOVERY_TOPIC), cfg, false);
 			let payload = FormatPayloadsString(.. scope .(DISCOVERY_PAYLOAD), cfg, true);
 
@@ -194,18 +184,26 @@ abstract class PlatformOS
 			{
 			case .Ok(let token):
 				{
-					if (mqtt.WaitToken(token, .FromSeconds(1)))
+					if (mqtt.WaitToken(token, .FromSeconds(2)))
 					{
 						Log.Success("MQTT Discovery sent and received.");
+						failedDiscovery = false;
+						break;
 					}
+					
+					failedDiscovery = null;
 				}
 			case .Err:
 				{
 					Log.Error($"Failed to send discovery message");
-					return .Err;
+					failedDiscovery = true;
 				}
 			}
-		}
+		});
+
+		_monitorState = AddComponent(.. new MQTTSensor(nameof(MONITOR_STATE_TOPIC), FormatPayloadsString(.. scope .(MONITOR_STATE_TOPIC), cfg, false)));
+		_loginState = AddComponent(.. new MQTTSensor(nameof(CURRENT_USER_TOPIC), FormatPayloadsString(.. scope .(CURRENT_USER_TOPIC), cfg, false)));
+		_powerState = AddComponent(.. new MQTTSensor(nameof(SYSTEM_STATE_TOPIC), FormatPayloadsString(.. scope .(SYSTEM_STATE_TOPIC), cfg, false)));
 
 		mqtt.onConnectionLost.Add(new (reason) => {
 			Log.Error(scope $"MQTT Connection lost '{reason}'");
@@ -271,7 +269,7 @@ abstract class PlatformOS
 
 			running = Update(deltaTime);
 
-			mqtt.Update(deltaTime);
+			mqtt.Update(deltaTime, cfg);
 
 			if (mqtt.IsConnected)
 			{

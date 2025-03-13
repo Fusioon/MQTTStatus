@@ -11,12 +11,21 @@ class MQTTHandler
 {
 	public delegate void MessageReceivedDelegate(StringView topic, MQTTClient_message msg);
 	public delegate void ConnectionLostDelegate(StringView reason);
+	public delegate void ConnectDelegate();
+
 
 	public enum ECredentials
 	{
 		case None;
 		case Pwd(StringView username, StringView password);
 		case Binary(StringView username, Span<uint8> data);
+	}
+
+	public enum EConnectError
+	{
+		Generic,
+		BadAuth,
+		NotFound
 	}
 
 	public struct DeliveryToken
@@ -45,11 +54,12 @@ class MQTTHandler
 
 	public Event<MessageReceivedDelegate> onMessageReceived ~ _.Dispose();
 	public Event<ConnectionLostDelegate> onConnectionLost ~ _.Dispose();
+	public Event<ConnectDelegate> onConnect ~ _.Dispose();
 
 	volatile bool _isConnected;
 	int64 _connectionRetryTimer;
+	int64 _retryTime;
 	int32 _connectionRetryCount;
-
 	public bool IsConnected => _isConnected;
 
 	static void MQTT_ConnectionLost(void* context, c_char* cause)
@@ -92,6 +102,7 @@ class MQTTHandler
 		if (onConnectionLost.HasListeners)
 			onConnectionLost(cause);
 
+		_connectionRetryTimer = _retryTime;
 		_isConnected = false;
 	}
 
@@ -160,17 +171,22 @@ class MQTTHandler
 
 		MQTTClient_setCallbacks(_client, Internal.UnsafeCastToPtr(this), => MQTT_ConnectionLost, => MQTT_MessageArrived, => MQTT_MessageDelivered);
 
+		return .Ok;
+	}
+
+	public Result<void, EConnectError> Connect()
+	{
+		let rc = MQTTClient_connect(_client, &_connOpts);
+		if (rc != MQTTCLIENT_SUCCESS)
 		{
-			let rc = MQTTClient_connect(_client, &_connOpts);
-			if (rc != MQTTCLIENT_SUCCESS)
-				return .Err;
+			return .Err(.Generic);
 		}
 
 		_isConnected = true;
 		return .Ok;
 	}
 
-	public void Update(double dt)
+	public void Update(double dt, Config cfg)
 	{
 		if (!_isConnected)
 		{
@@ -178,14 +194,18 @@ class MQTTHandler
 			if (_connectionRetryTimer <= 0)
 			{
 				_connectionRetryCount++;
-				_connectionRetryTimer = Math.Max(_connectionRetryCount * 2000, 16000);
 
-				let rc = MQTTClient_connect(_client, &_connOpts);
-				if (rc == MQTTCLIENT_SUCCESS)
+				_retryTime = Math.Min(_retryTime * (int64)cfg.RetryDelayMult, cfg.RetryDelayMax);
+
+				if (Connect() case .Ok)
 				{
 					_connectionRetryCount = 0;
-					_isConnected = true;
+					_retryTime = cfg.RetryDelayStart;
+					if (onConnect.HasListeners)
+						onConnect();
 				}
+
+				MQTTClient_yield();
 			}
 		}
 	}

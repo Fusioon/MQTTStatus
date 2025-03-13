@@ -15,17 +15,23 @@ class Config
 	append String _password;
 	String _binaryPwdPath = null ~ delete _;
 
-	protected uint32 _retryCount;
-	protected uint32 _retryDelay;
+	protected int32 _retryDelayStart = 2000;
+	protected int32 _retryDelayMax = 45000;
+	protected float _retryDelayMult = 1.5f;
 
-	public uint32 RetryCount
+	public int32 RetryDelayStart
 	{
-		get => _retryCount;
+		get => _retryDelayStart;
 	}
 
-	public uint32 RetryDelay
+	public int32 RetryDelayMax
 	{
-		get => _retryDelay;
+		get => _retryDelayMax;
+	}
+
+	public float RetryDelayMult
+	{
+		get => _retryDelayMult;
 	}
 
 	append String _clientID;
@@ -71,8 +77,9 @@ class Config
 		Username = "username";
 		Password = "password";
 
-		_retryCount = 10;
-		_retryDelay = 2000;
+		_retryDelayStart = 2000;
+		_retryDelayMax = 45000;
+		_retryDelayMult = 1.5f;
 
 		ClientId = "0AB10FU0";
 		DeviceName = "Puter";
@@ -96,14 +103,18 @@ class Config
 			_address.Set(conn[nameof(Address)].GetValueOrDefault().AsString().GetValueOrDefault());
 			_username.Set(conn[nameof(Username)].GetValueOrDefault().AsString().GetValueOrDefault());
 			_password.Set(conn[nameof(Password)].GetValueOrDefault().AsString().GetValueOrDefault());
-			if (conn[nameof(BinaryPwdPath)] case .Ok(let val) && val.IsString)
+
+			TomlValue val;
+			if (conn[nameof(BinaryPwdPath)] case .Ok(out val) && val.IsString)
 			{
 				let binaryPwd = val.AsString();
 				_binaryPwdPath = new .(binaryPwd);
 			}
 
-			if (conn[nameof(RetryCount)] case .Ok(let val) && val.AsUInt32() case .Ok(out _retryCount)) {}
-			if (conn[nameof(RetryDelay)] case .Ok(let val) && val.AsUInt32() case .Ok(out _retryDelay)) {}
+			bool _;
+			_ = (conn[nameof(RetryDelayStart)] case .Ok(out val) && val.AsInt32() case .Ok(out _retryDelayStart));
+			_ = (conn[nameof(RetryDelayMax)] case .Ok(out val) && val.AsInt32() case .Ok(out _retryDelayMax));
+			_ = (conn[nameof(RetryDelayMult)] case .Ok(out val) && val.AsFloat() case .Ok(out _retryDelayMult));
 		}
 
 		if (let dev = doc[HEADER_DEVICE].GetValueOrDefault().AsObject())
@@ -114,13 +125,14 @@ class Config
 
 		if (let log = doc[HEADER_LOGGING].GetValueOrDefault().AsObject())
 		{
-			if (log[nameof(Log.LogLevel)] case .Ok(let val) && val.AsEnum<ELogLevel>() case .Ok(let logLevel))
+			TomlValue val;
+			if (log[nameof(Log.LogLevel)] case .Ok(out val) && val.AsEnum<ELogLevel>() case .Ok(let logLevel))
 			{
 				if (Enum.IsDefined(logLevel))
 					Log.LogLevel = logLevel;
 			}
 
-			if (log[nameof(Log.LogCallerPathMinLevel)] case .Ok(let val) && val.AsEnum<ELogLevel>() case .Ok(let logLevel))
+			if (log[nameof(Log.LogCallerPathMinLevel)] case .Ok(out val) && val.AsEnum<ELogLevel>() case .Ok(let logLevel))
 			{
 				if (Enum.IsDefined(logLevel))
 					Log.LogCallerPathMinLevel = logLevel;
@@ -141,8 +153,10 @@ class Config
 			conn.AddValue(nameof(Password), _password);
 			if (!String.IsNullOrEmpty(_binaryPwdPath))
 				conn.AddValue(nameof(BinaryPwdPath), _binaryPwdPath);
-			conn.AddValue(nameof(RetryCount), RetryCount);
-			conn.AddValue(nameof(RetryDelay), RetryDelay);
+
+			conn.AddValue(nameof(RetryDelayStart), RetryDelayStart);
+			conn.AddValue(nameof(RetryDelayMax), RetryDelayMax);
+			conn.AddValue(nameof(RetryDelayMult), RetryDelayMult);
 		}
 		if (let dev = doc.AddObject(HEADER_DEVICE))
 		{
