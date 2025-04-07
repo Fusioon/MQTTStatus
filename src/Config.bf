@@ -1,6 +1,7 @@
 using System;
 
 using Fusion.TOML;
+using MQTTCommon;
 
 namespace MQTTStatus;
 

@@ -3,7 +3,7 @@
 using System;
 using System.Interop;
 
-namespace MQTTStatus.Win32;
+namespace MQTTCommon.Win32;
 
 static
 {
@@ -263,7 +263,7 @@ static
 		using public DUMMYUNIONNAME dummyunion;
 		public c_wchar[64]  szInfoTitle;
 		public c_ulong dwInfoFlags;
-		public Guid guidItem;
+		public GUID guidItem;
 		public HIcon hBalloonIcon;
 	}
 
@@ -498,7 +498,10 @@ static
 	[CLink, CallingConvention(.Stdcall)]
 	public static extern Windows.IntBool SetLayeredWindowAttributes(Windows.HWnd hWnd, c_long crKey, uint8 bAlpha, c_ulong dwFlags);
 
-	public struct HResult : c_long {}
+	public struct HResult : c_long {
+		public bool Success => this >= 0;
+		public bool Failed => this < 0;
+	}
 		
 	[CLink, CallingConvention(.Stdcall)]
 	public static extern HResult CoInitialize(void* pvReserved);
@@ -1558,8 +1561,24 @@ static
 	[CRepr]
 	public struct GUID : this(uint32 data, uint16 data2, uint16 data3, uint8[8] data4)
 	{
-		
+		public this(
+			uint32 data,
+			uint16 data2,
+			uint16 data3,
+			uint8 _0,
+			uint8 _1,
+			uint8 _2,
+			uint8 _3,
+			uint8 _4,
+			uint8 _5,
+			uint8 _6,
+			uint8 _7) : this(data, data2, data3, uint8[8](
+				_0, _1, _2, _3,  _4, _5, _6, _7
+			))
+		{ }
 	}
+
+	public typealias IID = GUID;
 
 	[CRepr]
 	public struct SP_DEVICE_INTERFACE_DATA
@@ -2070,6 +2089,9 @@ static
 	[CallingConvention(.Stdcall), CLink]
 	public static extern Windows.IntBool SetServiceStatus(SERVICE_STATUS_HANDLE hServiceStatus, SERVICE_STATUS* lpServiceStatus);
 
+	[CallingConvention(.Stdcall), CLink]
+	public static extern Windows.IntBool QueryServiceStatus(SC_HANDLE hService, SERVICE_STATUS* lpServiceStatus);
+
 	//
 	// Value to indicate no change to an optional parameter
 	//
@@ -2261,6 +2283,164 @@ static
 
 	[CallingConvention(.Stdcall), CLink]
 	public static extern Windows.IntBool SystemParametersInfoW(c_uint uiAction, c_uint uiParam, void* pvParam, c_uint fWinIni);
+
+	[CallingConvention(.Stdcall), CLink]
+	public static extern Windows.IntBool WaitNamedPipeA(c_char* lpNamedPipeName, c_uint nTimeOut);
+
+	[CRepr]
+	public struct HSTRING_HEADER
+	{
+		[CRepr, Union]
+		public struct
+		{
+			public void* Reserved1;
+#if BF_64_BIT
+			c_char[24] Reserved2;
+#else
+			c_char[20] Reserved2;
+#endif
+		} Reserved;
+	}
+
+	public struct HSTRING : int, IDisposable {
+		public void Dispose() => WindowsDeleteString(this);
+	}
+
+	public enum TrustLevel : c_int
+	{
+		BaseTrust,
+		PartialTrust,
+		FullTrust,
+	}
+
+	public enum RO_INIT_TYPE : c_int
+	{
+		RO_INIT_SINGLETHREADED     = 0,      // Single-threaded application
+		RO_INIT_MULTITHREADED      = 1,      // COM calls objects on any thread.
+	}
+
+	public enum COINITBASE : c_int
+	{
+		COINITBASE_MULTITHREADED      = 0x0,      // OLE calls objects on any thread.
+	}
+
+	public enum COINIT : c_int
+	{
+	  COINIT_APARTMENTTHREADED  = 0x2,      // Apartment model
+	  COINIT_MULTITHREADED      = COINITBASE.COINITBASE_MULTITHREADED,
+	  COINIT_DISABLE_OLE1DDE    = 0x4,      // Don't use DDE for Ole1 support.
+	  COINIT_SPEED_OVER_MEMORY  = 0x8,      // Trade memory for speed.
+	}
+
+	public enum CLSCTX : c_int
+	{
+		CLSCTX_INPROC_SERVER	= 0x1,
+		CLSCTX_INPROC_HANDLER	= 0x2,
+		CLSCTX_LOCAL_SERVER	= 0x4,
+		CLSCTX_INPROC_SERVER16	= 0x8,
+		CLSCTX_REMOTE_SERVER	= 0x10,
+		CLSCTX_INPROC_HANDLER16	= 0x20,
+		CLSCTX_RESERVED1	= 0x40,
+		CLSCTX_RESERVED2	= 0x80,
+		CLSCTX_RESERVED3	= 0x100,
+		CLSCTX_RESERVED4	= 0x200,
+		CLSCTX_NO_CODE_DOWNLOAD	= 0x400,
+		CLSCTX_RESERVED5	= 0x800,
+		CLSCTX_NO_CUSTOM_MARSHAL	= 0x1000,
+		CLSCTX_ENABLE_CODE_DOWNLOAD	= 0x2000,
+		CLSCTX_NO_FAILURE_LOG	= 0x4000,
+		CLSCTX_DISABLE_AAA	= 0x8000,
+		CLSCTX_ENABLE_AAA	= 0x10000,
+		CLSCTX_FROM_DEFAULT_CONTEXT	= 0x20000,
+		CLSCTX_ACTIVATE_X86_SERVER	= 0x40000,
+#unwarn
+		CLSCTX_ACTIVATE_32_BIT_SERVER	= CLSCTX_ACTIVATE_X86_SERVER,
+		CLSCTX_ACTIVATE_64_BIT_SERVER	= 0x80000,
+		CLSCTX_ENABLE_CLOAKING	= 0x100000,
+		CLSCTX_APPCONTAINER	= 0x400000,
+		CLSCTX_ACTIVATE_AAA_AS_IU	= 0x800000,
+		CLSCTX_RESERVED6	= 0x01000000,
+		CLSCTX_ACTIVATE_ARM32_SERVER	= 0x02000000,
+		CLSCTX_ALLOW_LOWER_TRUST_REGISTRATION	= 0x04000000,
+		CLSCTX_PS_DLL	= 0x80000000
+	}
+
+	enum REGCLS : c_int
+	{
+		REGCLS_SINGLEUSE = 0,       // class object only generates one instance
+		REGCLS_MULTIPLEUSE = 1,     // same class object genereates multiple inst.
+		                            // and local automatically goes into inproc tbl.
+		REGCLS_MULTI_SEPARATE = 2,  // multiple use, but separate control over each
+		                            // context.
+		REGCLS_SUSPENDED      = 4,  // register is as suspended, will be activated
+		                            // when app calls CoResumeClassObjects
+		REGCLS_SURROGATE      = 8,  // must be used when a surrogate process
+		                            // is registering a class object that will be
+		                            // loaded in the surrogate
+		REGCLS_AGILE = 0x10,        // Class object aggregates the free-threaded marshaler
+									// and will be made visible to all inproc apartments.
+									// Can be used together with other flags - for example,
+									// REGCLS_AGILE | REGCLS_MULTIPLEUSE to register a
+									// class object that can be used multiple times from
+									// different apartments. Without other flags, behavior
+									// will retain REGCLS_SINGLEUSE semantics in that only
+									// one instance can be generated.
+	}
+
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern HResult CoInitializeEx(void* pvReserved, c_ulong dwCoInit);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern HResult RoInitialize(RO_INIT_TYPE initType);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern void RoUninitialize();
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern HResult CoRegisterClassObject(IID* rclsid, void* pUnk, CLSCTX dwClsContext, REGCLS flags, c_ulong* lpdwRegister);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern HResult CoRevokeClassObject(c_ulong dwRegister);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern HResult RoGetActivationFactory(HSTRING activatableClassId, IID* iid, void** factory);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern HResult RoActivateInstance(HSTRING activatableClassId, void** instance);
+
+	public struct LSTATUS : c_long
+	{
+		const c_long FACILITY_WIN32 = 7;
+		public HResult Result => (HResult)((this) <= 0 ? (this) : ((((c_long)this) & 0x0000FFFF) | (FACILITY_WIN32 << 16) | (c_long)0x80000000));
+	}
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern LSTATUS RegSetValueW(HKey hkey, c_wchar* lpSubKey, c_ulong dwType, c_wchar* lpData, c_ulong cbData);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern HResult WindowsCreateStringReference(c_wchar* sourceString, c_uint length, HSTRING_HEADER* hstringHeader, HSTRING* string);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern HResult WindowsCreateString(c_wchar* sourceString, c_uint length, HSTRING* string);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern HResult WindowsDeleteString(HSTRING string);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern c_ulong GetCurrentThreadId();
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern Windows.IntBool PostThreadMessageW(c_ulong idThread, c_uint Msg, c_uintptr wParam, c_intptr lParam);
+
+	[CallingConvention(.Stdcall)]
+	public function void TimerProc(Windows.HWnd, c_uint, c_uintptr, c_uint);
+ 
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern c_uintptr SetTimer(Windows.HWnd hWnd, c_uintptr nIDEvent, c_uint uElapse, TimerProc lpTimerFunc);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern Windows.IntBool KillTimer(Windows.HWnd hWnd, c_uintptr nIDEvent);
 }
 
 #endif // BF_PLATFORM_WINDOWS

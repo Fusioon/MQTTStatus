@@ -1,0 +1,6 @@
+FileVersion = 1
+
+[Project]
+Name = "MQTTCommon"
+TargetType = "BeefLib"
+StartupObject = "MQTTCommon.Program"

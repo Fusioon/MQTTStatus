@@ -1,9 +1,10 @@
 #if BF_PLATFORM_WINDOWS
 
 using System;
-
-using MQTTStatus.Win32;
 using System.IO;
+
+using MQTTCommon;
+using MQTTCommon.Win32;
 
 namespace MQTTStatus;
 
@@ -24,18 +25,6 @@ class PlatformWin32 : PlatformOS
 
 	public override bool Update(double deltaTime)
 	{
-		/*const int SC_MONITORPOWER = 0xF170;
-
-		MSG msg = default;
-		//PeekMessageW(&msg, null, 0, 0)
-		if (GetMessageW(&msg, 0, 0, 0) > 0)
-		{
-			if (msg.message == WM_SYSCOMMAND && (msg.wParam & 0xFFF0) == SC_MONITORPOWER)
-			{
-				bool on = msg.lParam == -1;
-				SendEvent(.MonitorPower(on));
-			}
-		}*/
 		System.Threading.Thread.Sleep(1000);
 
 		if (_serviceStatus.dwWaitHint != 0 && _serviceStatus.dwCurrentState == SERVICE_RUNNING)
@@ -80,12 +69,11 @@ class PlatformWin32 : PlatformOS
 		if (AllocateAndInitializeSid(&NtAuthority, 2, SECURITY_BUILTIN_DOMAIN_RID,
 		    DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &adminGroup))
 		{
-
-				defer  FreeSid(adminGroup);
-			    // Check if the current process's token contains the admin group
-			    if (!CheckTokenMembership(0, adminGroup, &isAdmin)) {
-			        isAdmin = false;
-			    }
+			defer  FreeSid(adminGroup);
+		    // Check if the current process's token contains the admin group
+		    if (!CheckTokenMembership(0, adminGroup, &isAdmin)) {
+		        isAdmin = false;
+		    }
 		}
 		return isAdmin;
 	}
@@ -225,6 +213,41 @@ class PlatformWin32 : PlatformOS
 
 			_serviceStatus.dwCurrentState = SERVICE_RUNNING;
 			SetServiceStatus(_hStatus, &_serviceStatus);
+		}
+		else
+		{
+			CHECK_SERVICE_STATUS:
+			do
+			{
+				let schSCManager = OpenSCManagerW(null, null, SC_MANAGER_ENUMERATE_SERVICE);
+				if (schSCManager == 0)
+				{
+					Log.Error(scope $"OpenSCManager failed ({Windows.GetLastError()})");
+					break CHECK_SERVICE_STATUS;
+				}
+				defer CloseServiceHandle(schSCManager);
+
+				let hService = OpenServiceW(schSCManager, SERVICE_NAME.ToScopedNativeWChar!(), SERVICE_QUERY_STATUS);
+				if (hService == 0)
+				{
+					Log.Error(scope $"OpenService failed ({Windows.GetLastError()})");
+					break CHECK_SERVICE_STATUS;
+				}
+				defer CloseServiceHandle(hService);
+
+				SERVICE_STATUS serviceStatus = default;
+				if (!QueryServiceStatus(hService, &serviceStatus))
+				{
+					Log.Error(scope $"QueryServiceStatus failed ({Windows.GetLastError()})");
+					break CHECK_SERVICE_STATUS;
+				}
+
+				if ((serviceStatus.dwCurrentState != SERVICE_STOPPED))
+				{
+					Log.Error(scope $"Service '{SERVICE_NAME}' not stopped, exiting...");
+					return;
+				}
+			}
 		}
 
 		Log.Success("Service started");

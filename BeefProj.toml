@@ -1,4 +1,5 @@
 FileVersion = 1
+Dependencies = {corlib = "*", MQTTCommon = "*"}
 
 [Project]
 Name = "MQTTStatus"
@@ -17,3 +18,5 @@ TargetDirectory = "$(WorkspaceDir)/dist"
 TargetName = "$(ProjectName)_x64"
 CLibType = "Dynamic"
 LibPaths = ["$(WorkspaceDir)/paho-mqtt3c-static.lib", "Ws2_32.lib", "Advapi32.lib", "Crypt32.lib", "bufferoverflowu.lib", "Wtsapi32.lib"]
+DebugCommandArguments = "--debug"
+DebugWorkingDirectory = "$(ProjectDir)\\dist"

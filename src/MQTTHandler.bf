@@ -1,9 +1,10 @@
 using System;
 using System.Interop;
-
-using PahoMQTT;
 using System.Threading;
 using System.Collections;
+
+using PahoMQTT;
+using MQTTCommon;
 
 namespace MQTTStatus;
 
@@ -69,7 +70,17 @@ class MQTTHandler
 
 	static c_int MQTT_MessageArrived(void* context, c_char* topicName, c_int topicLen, MQTTClient_message* msg)
 	{
-		let result = ((Self)Internal.UnsafeCastToObject(context)).Arrived(StringView(topicName, topicLen), msg);
+		StringView topic;
+		if (topicLen == 0)
+		{
+			topic = .(topicName);
+		}
+		else
+		{
+			topic = .(topicName, topicLen);
+		}
+		
+		let result = ((Self)Internal.UnsafeCastToObject(context)).Arrived(topic, msg);
 
 		var msg;
 		MQTTClient_freeMessage(&msg);
@@ -99,7 +110,7 @@ class MQTTHandler
 
 	void ConnectionLost(StringView cause)
 	{
-		if (onConnectionLost.HasListeners)
+		if (_isConnected && onConnectionLost.HasListeners)
 			onConnectionLost(cause);
 
 		_connectionRetryTimer = _retryTime;
@@ -168,8 +179,9 @@ class MQTTHandler
 
 		_connOpts.keepAliveInterval = 20;
 		_connOpts.cleansession = 1;
-
+		
 		MQTTClient_setCallbacks(_client, Internal.UnsafeCastToPtr(this), => MQTT_ConnectionLost, => MQTT_MessageArrived, => MQTT_MessageDelivered);
+		_isConnected = false;
 
 		return .Ok;
 	}
@@ -194,9 +206,7 @@ class MQTTHandler
 			if (_connectionRetryTimer <= 0)
 			{
 				_connectionRetryCount++;
-
 				_retryTime = Math.Min(_retryTime * (int64)cfg.RetryDelayMult, cfg.RetryDelayMax);
-
 				if (Connect() case .Ok)
 				{
 					_connectionRetryCount = 0;
@@ -247,4 +257,12 @@ class MQTTHandler
 		return false;
 	}
 
+	public Result<void> SubscribeTopic(StringView topic, int32 qos = 1)
+	{
+		let rc = MQTTClient_subscribe(_client, topic.ToScopeCStr!(), qos);
+		if (rc != MQTTCLIENT_SUCCESS)
+			return .Err;
+
+		return .Ok;
+	}
 }

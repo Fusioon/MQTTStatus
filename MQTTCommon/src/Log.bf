@@ -1,6 +1,6 @@
 using System;
 
-namespace MQTTStatus;
+namespace MQTTCommon;
 
 public enum ELogLevel
 {

@@ -1,12 +1,18 @@
 using System;
 using System.Threading;
+using System.Collections;
+using System.IO;
+
+using MQTTCommon;
 
 namespace MQTTStatus;
 
 abstract class MQTTComponent
 {
+	public delegate void SubscribeTopicDelegate(MQTTComponent component, StringView topic);
+
 	protected readonly String _name ~ delete:append _;
-	protected readonly String _topic ~ delete:append _;
+	protected append String _topic = .(64);
 
 	public StringView Name
 	{
@@ -16,29 +22,130 @@ abstract class MQTTComponent
 	public StringView Topic
 	{
 		get => _topic;
+		internal set => _topic.Set(value);
 	}
+
+	public abstract StringView Kind { get; }
+	public virtual bool IsDirty => false;
+	public virtual bool CanPublish => false;
+
+	public Event<delegate void(Span<uint8> data)> onReceive ~ _.Dispose();
 
 	[AllowAppend]
-	public this(StringView name, StringView topic)
+	public this(StringView name)
 	{
 		String nameTmp = append String(name);
-		String topicTmp = append String(topic);
 
 		_name = nameTmp;
-		_topic = topicTmp;
 	}
 
-	public abstract Result<void> Publish(MQTTHandler mqtt);
+	public virtual Result<void> Publish(MQTTHandler mqtt) => .Ok;
+
+	public virtual Result<void> Receive(Span<uint8> data)
+	{
+		if (onReceive.HasListeners)
+			onReceive(data);
+
+		return .Ok;
+	}
+
+	public virtual void WriteDiscoveryPayload(JSONWriter writer)
+	{
+
+	}
+
+	public virtual void SubscribeTopic(SubscribeTopicDelegate subscribe)
+	{
+
+	}
+}
+
+class MQTTButton : MQTTComponent
+{
+	public override StringView Kind => "button";
+
+	[AllowAppend]
+	public this(StringView name) : base(name)
+	{
+
+	}
+
+	public override void WriteDiscoveryPayload(JSONWriter writer)
+	{
+		writer.WriteValueStr("command_topic", Topic);
+		base.WriteDiscoveryPayload(writer);
+	}
+
+	public override void SubscribeTopic(SubscribeTopicDelegate subscribe)
+	{
+		subscribe(this, Topic);
+		base.SubscribeTopic(subscribe);
+	}
+}
+
+class MQTTNotify : MQTTComponent
+{
+	public override StringView Kind => "notify";
+
+
+	[AllowAppend]
+	public this(StringView name) : base(name)
+	{
+
+	}
+
+	public override void WriteDiscoveryPayload(JSONWriter writer)
+	{
+		writer.WriteValueStr("command_topic", Topic);
+		base.WriteDiscoveryPayload(writer);
+	}
+
+	public override void SubscribeTopic(SubscribeTopicDelegate subscribe)
+	{
+		subscribe(this, Topic);
+		base.SubscribeTopic(subscribe);
+	}
+}
+
+class MQTTText : MQTTComponent
+{
+	public override StringView Kind => "text";
+
+	public readonly bool password;
+
+	[AllowAppend]
+	public this(StringView name, bool password) : base(name)
+	{
+		this.password = password;
+	}
+
+	public override void WriteDiscoveryPayload(JSONWriter writer)
+	{
+		writer.WriteValueStr("command_topic", Topic);
+		writer.WriteValueStr("mode", password ? "password" : "text");
+		base.WriteDiscoveryPayload(writer);
+	}
+
+	public override void SubscribeTopic(SubscribeTopicDelegate subscribe)
+	{
+		subscribe(this, Topic);
+		base.SubscribeTopic(subscribe);
+	}
 }
 
 class MQTTSensor : MQTTComponent
 {
+	public override StringView Kind => "sensor";
+	public override bool CanPublish => true;
+
 	const int MAX_RETRIES = 4;
 
 	append String _value = .(16);
 	volatile bool _isDirty;
 	int32 _remainingRetries;
 	append Monitor _monitor;
+
+	public override bool IsDirty => _isDirty;
 
 	public StringView Value
 	{
@@ -57,7 +164,7 @@ class MQTTSensor : MQTTComponent
 	}
 
 	[AllowAppend]
-	public this(StringView name, StringView topic) : base(name, topic)
+	public this(StringView name) : base(name)
 	{
 		
 	}
@@ -66,6 +173,13 @@ class MQTTSensor : MQTTComponent
 	{
 		_remainingRetries = MAX_RETRIES;
 		_isDirty = true;
+	}
+
+	public override void WriteDiscoveryPayload(JSONWriter writer)
+	{
+		writer.WriteValueStr("state_topic", Topic);
+
+		base.WriteDiscoveryPayload(writer);
 	}
 
 	public override Result<void> Publish(MQTTHandler mqtt)

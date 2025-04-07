@@ -1,11 +1,10 @@
 using System;
-
-
-using PahoMQTT;
 using System.IO;
 
-namespace MQTTStatus;
+using PahoMQTT;
+using MQTTCommon;
 
+namespace MQTTStatus;
 
 class Program
 {
