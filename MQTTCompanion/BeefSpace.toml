@@ -1,0 +1,5 @@
+FileVersion = 1
+Projects = {MQTTCompanion = {Path = "."}, MQTTCommon = {Path = "../MQTTCommon"}}
+
+[Workspace]
+StartupProject = "MQTTCompanion"
