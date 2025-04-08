@@ -133,6 +133,11 @@ abstract class PlatformOS
 		_mqttComponents.Add(component);
 	}
 
+	bool HandleMsg(String msg)
+	{
+		return false;
+	}
+
 	protected virtual Result<void> Run(Config cfg)
 	{
 		MQTTHandler mqtt = scope .();
@@ -176,7 +181,7 @@ abstract class PlatformOS
 		let locKWorkstation = AddComponent(.. new MQTTButton("Lock Workstation"));
 		locKWorkstation.onReceive.Add(new (data) => { TrySilent!(_ipcManager.Send(Client_IPCCommands.LOCK_WORKSTATION + Client_IPCCommands.COMMAND_SEPARATOR)); });
 
-		let deviceNotification = AddComponent(.. new MQTTText("Notifications", false));
+		let deviceNotification = AddComponent(.. new MQTTNotify("Notifications"));
 		deviceNotification.onReceive.Add(new (data) => {
 
 			let command = new:ScopedAlloc! String(Client_IPCCommands.NOTIFICATION.Length + data.Length + 4);
@@ -344,6 +349,16 @@ abstract class PlatformOS
 			running = Update(deltaTime);
 
 			_ipcManager.Update();
+			String msg;
+			while((msg = _ipcManager.PopMessage()) != null)
+			{
+				if (!HandleMsg(msg))
+				{
+					Log.Warning(scope $"Unhandled IPC message:\n------\n{msg}\n------");
+				}
+				delete msg;
+			}
+
 			mqtt.Update(deltaTime, cfg);
 
 			if (mqtt.IsConnected)
