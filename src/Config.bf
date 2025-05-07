@@ -109,7 +109,7 @@ class Config
 			if (conn[nameof(BinaryPwdPath)] case .Ok(out val) && val.IsString)
 			{
 				let binaryPwd = val.AsString();
-				_binaryPwdPath = new .(binaryPwd);
+				String.NewOrSet!(_binaryPwdPath, binaryPwd);
 			}
 
 			bool _;
