@@ -205,6 +205,14 @@ abstract class PlatformOS
 				SendEvent(.PowerOn);
 				QueryMonitorState();
 				QueryUserState();
+
+				for (let (topic, _) in _mqttTopicSubComponents)
+				{
+					if (mqtt.SubscribeTopic(topic) case .Err)
+					{
+						Log.Error(scope $"Failed to subscribe to topic '{topic}'");
+					}
+				}
 			}
 
 			if (failedDiscovery != null)
@@ -218,11 +226,6 @@ abstract class PlatformOS
 				{
 					*keyPtr = new String(topic);
 					*valPtr = new .();
-
-					if (mqtt.SubscribeTopic(topic) case .Err)
-					{
-						Log.Error(scope $"Failed to subscribe to topic '{topic}' for '{component.Name}'");
-					}
 				}
 				
 				(*valPtr).Add(component);
@@ -262,6 +265,7 @@ abstract class PlatformOS
 
 		mqtt.onMessageReceived.Add(new (topic, msg) => {
 
+			Log.Trace(scope $"[MQTT] Message received on topic '{topic}' payload length: {msg.payloadlen}");
 			if (!_mqttTopicSubComponents.TryGetValueAlt(topic, let components))
 				return;
 
