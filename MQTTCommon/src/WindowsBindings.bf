@@ -1671,8 +1671,30 @@ static
 	public struct SECURITY_ATTRIBUTES
 	{
 		public c_uint nLength;
-		public Windows.SECURITY_DESCRIPTOR* lpSecurityDescriptor;
+		public SECURITY_DESCRIPTOR* lpSecurityDescriptor;
 		public Windows.IntBool bInheritHandle;
+	}
+
+	[CRepr]
+	public struct ACL
+	{
+		public uint8 AclRevision;
+		public uint8 Sbz1;
+		public uint16 AclSize;
+		public uint16 AceCount;
+		public uint16 Sbz2;
+	}
+
+	[CRepr]
+	public struct SECURITY_DESCRIPTOR
+	{
+		public uint8 Revision;
+		public uint8 Sbz1;
+		public uint16 Control;
+		public PSID Owner;
+		public PSID Group;
+		public ACL* Sacl;
+		public ACL* Dacl;
 	}
 
 	public enum FILE_ATTRIBUTE : c_uint
@@ -1717,6 +1739,13 @@ static
 		FirstPipeInstance = 0x00080000      // The creation of the first instance of a named pipe.
 	}
 
+	public const int SECURITY_DESCRIPTOR_REVISION = 1;
+
+	[CallingConvention(.Stdcall), CLink]
+	public static extern Windows.IntBool InitializeSecurityDescriptor(SECURITY_DESCRIPTOR* pSecurityDescriptor, c_ulong dwRevision);
+
+	[CallingConvention(.Stdcall), CLink]
+	public static extern Windows.IntBool SetSecurityDescriptorDacl(SECURITY_DESCRIPTOR* pSecurityDescriptor, Windows.IntBool bDaclPresent, ACL* pDacl, Windows.IntBool bDaclDefaulted);
 
 	[CallingConvention(.Stdcall), CLink]
 	public static extern Windows.Handle CreateFileW(
@@ -2362,7 +2391,9 @@ static
 		CLSCTX_RESERVED6	= 0x01000000,
 		CLSCTX_ACTIVATE_ARM32_SERVER	= 0x02000000,
 		CLSCTX_ALLOW_LOWER_TRUST_REGISTRATION	= 0x04000000,
-		CLSCTX_PS_DLL	= 0x80000000
+		CLSCTX_PS_DLL	= 0x80000000,
+
+		CLSCTX_ALL = (.CLSCTX_LOCAL_SERVER | .CLSCTX_REMOTE_SERVER | .CLSCTX_INPROC_SERVER | .CLSCTX_INPROC_HANDLER)
 	}
 
 	enum REGCLS : c_int
@@ -2408,6 +2439,9 @@ static
 
 	[CLink, CallingConvention(.Stdcall)]
 	public static extern HResult RoActivateInstance(HSTRING activatableClassId, void** instance);
+
+	[CLink, CallingConvention(.Stdcall)]
+	public static extern HResult CoCreateInstance(GUID* rclsid, void* pUnkOuter, CLSCTX dwClsContext, GUID* riid, void* ppv);
 
 	public struct LSTATUS : c_long
 	{

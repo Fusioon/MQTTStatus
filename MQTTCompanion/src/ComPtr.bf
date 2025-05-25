@@ -44,9 +44,9 @@ struct MIDL_INTERFACEAttribute : Attribute
 [MIDL_INTERFACE("00000000-0000-0000-C000-000000000046")]
 interface IUnknown
 {
-	public HResult QueryInterface(in GUID riid, void** ppvObject);
-	public c_ulong AddRef();
-	public c_ulong Release();
+	public HResult QueryInterface(GUID* riid, void** ppvObject);
+	public c_ulong AddRef() mut;
+	public c_ulong Release() mut;
 }
 
 [MIDL_INTERFACE("AF86E2E0-B12D-4c6a-9C5A-D7AA65101E90")]
@@ -117,7 +117,7 @@ struct ComPtr<T>
 		where IfaceT : interface, IUnknown
 	{
 		ComPtr<IfaceT>* pp = default;
-		let result = ((ComVtbl<IUnknown>*)_vtbl).QueryInterface(&this, ComPtr<IfaceT>.IID, (.)&pp);
+		let result = ((ComVtbl<IUnknown>*)_vtbl).QueryInterface(&this, &ComPtr<IfaceT>.IID, (.)&pp);
 		if (result.Failed)
 			return .Err(result);
 
@@ -288,5 +288,26 @@ struct ComPtr
 	protected this(void* vtable)
 	{
 		_vTable = vtable;
+	}
+}
+
+[GenerateVTable]
+public struct GenericComPtr : ComPtr, IUnknown
+{
+	public uint64 refCount = 0;
+
+	public HResult QueryInterface(GUID* riid, void** ppvObject)
+	{
+		return EHResult.E_NOINTERFACE;
+	}
+
+	public c_ulong AddRef() mut
+	{
+		return (.)System.Threading.Interlocked.Increment(ref refCount);
+	}
+
+	public c_ulong Release() mut
+	{
+		return (.)System.Threading.Interlocked.Decrement(ref refCount);
 	}
 }

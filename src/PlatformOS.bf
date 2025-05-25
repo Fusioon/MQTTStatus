@@ -83,7 +83,7 @@ abstract class PlatformOS
 			keyName[0] = keyName[0].ToLower;
 
 			topic..Clear().AppendF($"{cfg.ClientId}/{comp.Kind}/{keyName}");
-			comp.Topic = topic;
+			comp.SetTopic(topic);
 
 			uniqueId..Clear().AppendF($"{keyName}_{comp.Kind}");
 
@@ -106,13 +106,15 @@ abstract class PlatformOS
 	MQTTSensor _loginState ~ delete _;
 	MQTTSensor _powerState ~ delete _;
 
+	MQTTNumber<uint32> _audioVolume ~ delete _;
+
 	append List<MQTTComponent> _mqttComponents ~ ClearAndDeleteItems!(_);
 	append List<MQTTComponent> _mqttDirtyComponents;
 	append Dictionary<String, List<MQTTComponent>> _mqttTopicSubComponents ~ DeleteKeysAndValues!(_);
 
 	append Monitor _dirtyComponentMonitor;
 
-	append IPCManager _ipcManager;
+	append IPCServer _ipcManager;
 
 	public abstract bool Update(double deltaTime);
 
@@ -133,8 +135,25 @@ abstract class PlatformOS
 		_mqttComponents.Add(component);
 	}
 
-	bool HandleMsg(String msg)
+	bool HandleMsg(StringView command, StringView args)
 	{
+		switch (command)
+		{
+		case Server_IPCCommands.AUDIO_VOLUME_CHANGED:
+			{
+				if (uint32.Parse(args) case .Ok(let val))
+				{
+					_audioVolume.Value = val;
+					using (_dirtyComponentMonitor.Enter())
+					{
+						if (_mqttDirtyComponents.IndexOf(_audioVolume) == -1)
+							_mqttDirtyComponents.Add(_audioVolume);
+					}
+					return true;
+				}
+			}
+		}
+
 		return false;
 	}
 
@@ -169,7 +188,7 @@ abstract class PlatformOS
 		}
 		Log.Success("MQTT Initialized");
 
-		Try!(_ipcManager.Init(true));
+		Try!(_ipcManager.Init());
 
 		_monitorState = AddComponent(.. new MQTTSensor("Monitor State"));
 		_loginState = AddComponent(.. new MQTTSensor("Current User"));
@@ -180,6 +199,31 @@ abstract class PlatformOS
 
 		let locKWorkstation = AddComponent(.. new MQTTButton("Lock Workstation"));
 		locKWorkstation.onReceive.Add(new (data) => { TrySilent!(_ipcManager.Send(Client_IPCCommands.LOCK_WORKSTATION + Client_IPCCommands.COMMAND_SEPARATOR)); });
+
+		let mediaStop = AddComponent(.. new MQTTButton("Media Stop"));
+		mediaStop.onReceive.Add(new (data) => { TrySilent!(_ipcManager.Send(Client_IPCCommands.MEDIA_STOP + Client_IPCCommands.COMMAND_SEPARATOR)); });
+
+		let mediaNext = AddComponent(.. new MQTTButton("Media Prev"));
+		mediaNext.onReceive.Add(new (data) => { TrySilent!(_ipcManager.Send(Client_IPCCommands.MEDIA_PREV + Client_IPCCommands.COMMAND_SEPARATOR)); });
+
+		let mediaPrev = AddComponent(.. new MQTTButton("Media Next"));
+		mediaPrev.onReceive.Add(new (data) => { TrySilent!(_ipcManager.Send(Client_IPCCommands.MEDIA_NEXT + Client_IPCCommands.COMMAND_SEPARATOR)); });
+
+		let audioMuteToggle = AddComponent(.. new MQTTButton("Toggle Mute"));
+		audioMuteToggle.onReceive.Add(new (data) => { TrySilent!(_ipcManager.Send(Client_IPCCommands.AUDIO_MUTE + Client_IPCCommands.COMMAND_SEPARATOR)); });
+
+		_audioVolume = AddComponent(.. new MQTTNumber<uint32>("Volume"));
+		_audioVolume.SetMinMax(1, 100);
+		_audioVolume.onValueChangeRequest.Add(new (newValue) => {
+			String buffer = scope .(128);
+			buffer..Clear()
+				..Append(Client_IPCCommands.AUDIO_SET_VOLUME)
+				..Append('|');
+			newValue.ToString(buffer);
+			buffer.Append(Client_IPCCommands.COMMAND_SEPARATOR);
+
+			TrySilent!(_ipcManager.Send(buffer));
+		});
 
 		let deviceNotification = AddComponent(.. new MQTTNotify("Notifications"));
 		deviceNotification.onReceive.Add(new (data) => {
@@ -352,11 +396,24 @@ abstract class PlatformOS
 
 			running = Update(deltaTime);
 
-			_ipcManager.Update();
+			_ipcManager.Update().IgnoreError();
 			String msg;
 			while((msg = _ipcManager.PopMessage()) != null)
 			{
-				if (!HandleMsg(msg))
+				StringView command, args;
+				let idx = msg.IndexOf('|');
+				if (idx != -1)
+				{
+					command = msg.Substring(0, idx);
+					args = msg.Substring(idx + 1);
+				}
+				else
+				{
+					command = msg;
+					args = default;
+				}
+
+				if (!HandleMsg(command, args))
 				{
 					Log.Warning(scope $"Unhandled IPC message:\n------\n{msg}\n------");
 				}

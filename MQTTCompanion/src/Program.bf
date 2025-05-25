@@ -3,6 +3,8 @@ using System;
 using MQTTCommon;
 using MQTTCommon.Win32;
 using System.Interop;
+using System.Collections;
+using System.Threading;
 
 namespace MQTTCompanion;
 
@@ -72,6 +74,13 @@ class Program
 		return .Ok;
 	}
 
+	static void SendKeyboardInput(int16 vk)
+	{
+		INPUT input = .CreateKeyboard(.KeyDown(vk));
+		SendInput(1, &input, sizeof(INPUT));
+		input.keyboard.dwFlags = KEYEVENTF_KEYUP;
+		SendInput(1, &input, sizeof(INPUT));
+	}
 
 	static void HandleCommand(StringView command, StringView data)
 	{
@@ -99,7 +108,35 @@ class Program
 					msg = data.Substring(idx + 1);
 				}
 
-				ToastNotifier.ShowNotification(title, msg);
+				ToastNotifier.ShowNotification(title, msg).IgnoreError();
+			}
+
+		case Client_IPCCommands.AUDIO_MUTE:
+			{
+				if (AudioManager.GetMute() case .Ok(let muted))
+				{
+					AudioManager.SetMute(!muted).IgnoreError();
+				}
+			}
+
+		case Client_IPCCommands.AUDIO_SET_VOLUME:
+			{
+				if (uint32.Parse(data) case .Ok(let val))
+				{
+					AudioManager.SetVolume(Math.Clamp(val, 1, 100) / 100f).IgnoreError();
+				}
+			}
+		case Client_IPCCommands.MEDIA_STOP:
+			{
+				SendKeyboardInput(VK_MEDIA_STOP);
+			}
+		case Client_IPCCommands.MEDIA_NEXT:
+			{
+				SendKeyboardInput(VK_MEDIA_NEXT_TRACK);
+			}
+		case Client_IPCCommands.MEDIA_PREV:
+			{
+				SendKeyboardInput(VK_MEDIA_PREV_TRACK);
 			}
 
 		case Client_IPCCommands.QUIT_COMPANION:
@@ -142,24 +179,42 @@ class Program
 		{
 			return;
 		}
-		
 
-		MQTTCommon.IPCManager ipcManager = scope .();
-		TrySilent!(ipcManager.Init(false));
+		defer AudioManager.Shutdown();
+		if (AudioManager.Init() case .Err)
+			return;
+
+		MQTTCommon.IPCClient ipcClient = scope .();
+
+		AudioManager.onVolumeChanged.Add(new (muted, volume) => {
+			let volumeValue = Math.Clamp((int32)(volume * 100), 1, 100);
+			let command = scope $"{Server_IPCCommands.AUDIO_VOLUME_CHANGED}|{volumeValue}{Client_IPCCommands.COMMAND_SEPARATOR}";
+			ipcClient.Send(command).IgnoreError();
+		});
 
 		let timer = SetTimer(0, 0, 1000, null);
 		defer KillTimer(0, timer);
 
 		MSG msg = default;
+		bool wasDisconnected = true;
 		while (GetMessageW(&msg, 0, 0, 0))
 		{
 			TranslateMessage(&msg);
 			DispatchMessageW(&msg);
 
-			if (!ipcManager.Update())
+			if (ipcClient.Update() case .Err)
+			{
+				wasDisconnected = true;
 				continue;
+			}
 
-			let message = ipcManager.PopMessage();
+			if (wasDisconnected)
+			{
+				wasDisconnected = false;
+				AudioManager.QueryVolume();
+			}
+
+			let message = ipcClient.PopMessage();
 			if (message == null)
 				continue;
 

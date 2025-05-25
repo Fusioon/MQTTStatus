@@ -6,19 +6,6 @@ using MQTTCommon.Win32;
 
 namespace MQTTCompanion;
 
-enum EHResult : c_long
-{
-	case S_OK = 0;
-	case E_OUTOFMEMORY = 0x8007000EL;
-	case E_NOINTERFACE = 0x80004002;
-	case CLASS_E_NOAGGREGATION = 0x80040110L;
-
-	public static implicit operator HResult(Self inst)
-	{
-		return ((.)(c_long)inst);
-	}
-}
-
 class ToastNotifier
 {
 #region COM_INTERFACES
@@ -213,50 +200,6 @@ class ToastNotifier
 
 
 #endregion
-
-
-	static mixin CheckResult(HResult result, bool allowModeChange = false)
-	{
-		const int32 RPC_E_CHANGED_MODE = (.)0x80010106L;
-
-		if (result.Failed && (!allowModeChange || result != (.)RPC_E_CHANGED_MODE))
-		{
-			Log.Error(scope $"0x{((uint32)result):x}");
-			return .Err;
-		}
-	}
-
-	static mixin CheckResultVal<T>(Result<T, HResult> result)
-	{
-		if (result case .Err(let code))
-		{
-			Log.Error(scope $"0x{((uint32)code):x}");
-			return .Err;
-		}
-
-		result.Get()
-	}
-
-	[GenerateVTable]
-	public struct GenericComPtr : ComPtr
-	{
-		public uint64 refCount = 0;
-
-		public HResult QueryInterface(IID* riid, void** ppvObject)
-		{
-			return EHResult.E_NOINTERFACE;
-		}
-
-		public c_ulong AddRef() mut
-		{
-			return (.)System.Threading.Interlocked.Increment(ref refCount);
-		}
-
-		public c_ulong Release() mut
-		{
-			return (.)System.Threading.Interlocked.Decrement(ref refCount);
-		}
-	}
 
 	[GenerateVTable]
 	public struct INotificationActivationCallback : GenericComPtr
