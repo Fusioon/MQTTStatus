@@ -236,12 +236,17 @@ class IPCClient
 		return .Ok;
 	}
 
-	public Result<void> Update()
+	public Result<bool> Update(bool peekFirst = true)
 	{
 		Try!(Connect());
 
+		uint32 bytesAval = 0;
+		if (peekFirst && PeekNamedPipe(_pipeHandle, null, 0, null , &bytesAval, null) && bytesAval == 0)
+			return .Ok(false);
+
 		uint8[1024] buffer = default;
 		int32 bytesRead;
+
 		int32 result = Windows.ReadFile(_pipeHandle, &buffer, buffer.Count, out bytesRead, null);
 		if ((result <= 0) || (bytesRead == 0))
 		{
@@ -256,6 +261,6 @@ class IPCClient
 		}
 
 		Try!(_msgHandler.ReadData(.(&buffer, bytesRead)));
-		return .Ok;
+		return .Ok(true);
 	}
 }

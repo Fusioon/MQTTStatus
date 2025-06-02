@@ -202,7 +202,7 @@ class Program
 			TranslateMessage(&msg);
 			DispatchMessageW(&msg);
 
-			if (ipcClient.Update() case .Err)
+			if (ipcClient.Update(wasDisconnected) case .Err)
 			{
 				wasDisconnected = true;
 				continue;

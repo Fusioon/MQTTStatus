@@ -2316,6 +2316,9 @@ static
 	[CallingConvention(.Stdcall), CLink]
 	public static extern Windows.IntBool WaitNamedPipeA(c_char* lpNamedPipeName, c_uint nTimeOut);
 
+	[CallingConvention(.Stdcall), CLink]
+	public static extern Windows.IntBool PeekNamedPipe(Windows.Handle hNamedPipe, void* lpBuffer, c_ulong nBufferSize, c_ulong* lpBytesRead, c_ulong* lpTotalBytesAvail, c_ulong* lpBytesLeftThisMessage);
+
 	[CRepr]
 	public struct HSTRING_HEADER
 	{
