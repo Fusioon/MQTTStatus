@@ -29,24 +29,36 @@ class MQTTHandler
 		NotFound
 	}
 
+	public struct TokenId : this(uint16 index, uint16 version) { }
+
 	public struct DeliveryToken
 	{
 		public c_int token;
-		public uint32 index;
+		public TokenId id;
 
-		public this(c_int token, uint32 index)
+		public this(c_int token, TokenId index)
 		{
 			this.token = token;
-			this.index = index;
+			this.id = index;
 		}
+
+		public void SetUnused() mut
+		{
+			token = -1;
+			id.index = uint16.MaxValue;
+			id.version++;
+		}
+
+		public bool IsUnused => token == -1 && id.index == uint16.MaxValue;
 	}
 
 	MQTTClient _client;
 
-	append WaitEvent _tokenReceiveEvent;
-	DeliveryToken _lastSentToken;
-	volatile DeliveryToken _lastDeliveredToken;
-
+	append Monitor _tokenMonitor;
+	append List<DeliveryToken> _deliveryTokens;
+	append List<DateTime> _deliverySendTime;
+	append List<WaitEvent> _deliveryEvent;
+	
 	append String _credentialsUsername;
 	append String _credentialsPassword;
 	append List<uint8> _credentialsBinaryPwd;
@@ -104,8 +116,28 @@ class MQTTHandler
 
 	void Delivered(c_int deliveryToken)
 	{
-		_lastDeliveredToken = .(deliveryToken, 0);
-		_tokenReceiveEvent.Set(true);
+		int index;
+
+		using (_tokenMonitor.Enter())
+		{
+			FIND_TOKEN:
+			do
+			{
+				for (var token in ref _deliveryTokens)
+				{
+					if (token.token == deliveryToken)
+					{
+						index = @token.Index;
+						break FIND_TOKEN;
+					}
+				}
+				return;
+			}
+			
+			_deliveryEvent[index].Set(true);
+			_deliveryTokens[index].SetUnused(); 
+		}
+		
 	}
 
 	void ConnectionLost(StringView cause)
@@ -234,27 +266,50 @@ class MQTTHandler
 		};
 
 		int32 token = 0;
-		_tokenReceiveEvent.Reset();
 		let rc = MQTTClient_publishMessage(_client, topic.ToScopeCStr!(), &pubmsg, &token);
 		if (rc != MQTTCLIENT_SUCCESS)
 			return .Err;
 
-		_lastSentToken = .(token, 0);
-		return _lastSentToken;
+		using (_tokenMonitor.Enter())
+		{
+			for (var tok in ref _deliveryTokens)
+			{
+				if (tok.IsUnused)
+				{
+					tok.token = token;
+					tok.id.index = (.)@tok.Index;
+					_deliverySendTime[tok.id.index] = DateTime.Now;
+					_deliveryEvent[tok.id.index].Reset();
+					return tok;
+				}
+			}
+			
+			let deliveryToken = DeliveryToken(token, .((.)_deliveryTokens.Count, 1));
+			_deliveryTokens.Add(deliveryToken);
+			_deliverySendTime.Add(DateTime.Now);
+			_deliveryEvent.Add(new .(false));
+			return deliveryToken;
+		}
 	}
 	
 	public bool WaitToken(DeliveryToken token, TimeSpan timeout = .MinValue)
 	{
-		if (_lastSentToken != token)
+		if (token.id.index >= _deliveryTokens.Count)
 			return false;
 
-		if (_lastDeliveredToken == token)
-			return true;
+		WaitEvent event;
+		using (_tokenMonitor.Enter())
+		{
+			let storedToken = _deliveryTokens[token.id.index];
+			Runtime.Assert(storedToken.id.index == token.id.index);
 
-		if (_tokenReceiveEvent.WaitFor((.)timeout.TotalMilliseconds))
-			return _lastDeliveredToken == token;
+			if (storedToken.id.version != token.id.version)
+				return true;
 
-		return false;
+			event = _deliveryEvent[token.id.index];
+		}
+
+		return (event.WaitFor((.)timeout.TotalMilliseconds));
 	}
 
 	public Result<void> SubscribeTopic(StringView topic, int32 qos = 1)

@@ -589,7 +589,7 @@ namespace Fusion.TOML
 
 		protected virtual void* Allocate(int size, int align)
 		{
-			return new [Align(align)]uint8[size]*(?);
+			return new uint8[size]*(?);
 		}
 		
 		protected virtual void* AllocateTyped(Type t, int size, int align)

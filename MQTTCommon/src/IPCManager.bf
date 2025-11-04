@@ -1,7 +1,9 @@
 using System;
 using System.Collections;
 
+#if BF_PLATFORM_WINDOWS
 using MQTTCommon.Win32;
+#endif
 
 namespace MQTTCommon;
 
@@ -68,19 +70,50 @@ class MessageHandler
 	}
 }
 
-class IPCServer
+abstract class IpcServerBase
 {
+	public abstract Result<void> Init();
+	public abstract Result<void> Send(StringView msg);
+	public abstract Result<void> Update();
+
+	public virtual Result<void> Send(eClientCommand cmd)
+	{
+		let buffer = eClientCommand.ToMessage(cmd, .. scope .());
+		return Send(buffer);
+	}
+
+	public using append MessageHandler _msgHandler;
+}
+
+abstract class IpcClientBase
+{
+	public abstract Result<void> Send(StringView msg);
+	public abstract Result<bool> Update(bool peekFirst = true);
+
+	public virtual Result<void> Send(eServerCommand cmd)
+	{
+		let buffer = eServerCommand.ToMessage(cmd, .. scope .());
+		return Send(buffer);
+	}
+
+	public using protected append MessageHandler _msgHandler;
+}
+
+
+#if BF_PLATFORM_WINDOWS
+
+class Win32_IPCServer: IpcServerBase
+{
+
 	const int32 BUFFER_SIZE = 1024;
 	const String NAME = "FU_MQTTStatus";
 
 	bool _pipeConnected;
 	Windows.Handle _pipeHandle ~ _.Close();
 
-	public using append MessageHandler _msgHandler;
-
 	public static readonly String s_pipeName = String.ConstF(@$"\\.\pipe\{NAME}");
 
-	public Result<void> Init()
+	public override Result<void> Init()
 	{
 		SECURITY_ATTRIBUTES sa = .(){
 			nLength = sizeof(SECURITY_ATTRIBUTES),
@@ -129,7 +162,7 @@ class IPCServer
 		return .Ok;
 	}
 
-	public Result<void> Send(StringView msg)
+	public override Result<void> Send(StringView msg)
 	{
 		Try!(Connect());
 
@@ -157,7 +190,7 @@ class IPCServer
 		return .Ok;
 	}
 
-	public Result<void> Update()
+	public override Result<void> Update()
 	{
 		Try!(Connect());
 
@@ -182,23 +215,22 @@ class IPCServer
 	}
 }
 
-class IPCClient
+class Win32_IPCClient : IpcClientBase
 {
 	bool _pipeConnected;
 	Windows.Handle _pipeHandle ~ _.Close();
-	public using append MessageHandler _msgHandler;
 
 	Result<void> Connect()
 	{
 		if (_pipeConnected)
 			return .Ok;
 
-		_pipeHandle = Windows.CreateFileA(IPCServer.s_pipeName, Windows.FILE_READ_DATA | Windows.FILE_WRITE_DATA, .None, null, .Open, Windows.FILE_FLAG_OVERLAPPED, .NullHandle);
+		_pipeHandle = Windows.CreateFileA(Win32_IPCServer.s_pipeName, Windows.FILE_READ_DATA | Windows.FILE_WRITE_DATA, .None, null, .Open, Windows.FILE_FLAG_OVERLAPPED, .NullHandle);
 		if (_pipeHandle.IsInvalid)
 		{
 			let err = Windows.GetLastError();
 			if (err != Windows.ERROR_FILE_NOT_FOUND)
-				Log.Error(scope $"[IPCClient] Win32 CreateFile '{IPCServer.s_pipeName}' failed ({err})");
+				Log.Error(scope $"[IPCClient] Win32 CreateFile '{Win32_IPCServer.s_pipeName}' failed ({err})");
 
 			return .Err;
 		}
@@ -207,7 +239,7 @@ class IPCClient
 		return .Ok;
 	}
 
-	public Result<void> Send(StringView msg)
+	public override Result<void> Send(StringView msg)
 	{
 		Try!(Connect());
 		if (Windows.WriteFile(_pipeHandle, (uint8*)msg.Ptr, (int32)msg.Length, let written, null) == 0)
@@ -236,7 +268,7 @@ class IPCClient
 		return .Ok;
 	}
 
-	public Result<bool> Update(bool peekFirst = true)
+	public override Result<bool> Update(bool peekFirst = true)
 	{
 		Try!(Connect());
 
@@ -264,3 +296,5 @@ class IPCClient
 		return .Ok(true);
 	}
 }
+
+#endif

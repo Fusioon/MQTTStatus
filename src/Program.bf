@@ -8,6 +8,10 @@ namespace MQTTStatus;
 
 class Program
 {
+	const String CONFIG_FILENAME = $"{Compiler.ProjectName}.config.toml";
+	const String LOG_FILENAME_TEMPLATE = $"{Compiler.ProjectName}.{{0}}.log";
+	const int MAX_LOG_HISTORY_COUNT = 10;
+
 	public static int Main(String[] args)
 	{
 		EServiceOptions opts = .None;
@@ -25,17 +29,87 @@ class Program
 		}
 
 		if (opts != .None || debug)
+		{
 			Log.Init(true, debug);
+		}
 
 		FileStream fs = scope .();
-		String buffer = scope .();
-		Environment.GetExecutableFilePath(buffer);
+		String exeDirectoryPath = {
+			String exeFilePath = scope .();
+			Environment.GetExecutableFilePath(exeFilePath);
+			
+			Path.GetDirectoryPath(exeFilePath, .. scope:: .())
+		};
+		
+		String tempPathBuffer = scope .(256);
+		INIT_LOG_FILES:
 		{
-			let length = buffer.Length;
-			buffer.Append(".latest.log");
-			if (fs.Open(buffer, FileMode.Create, .Write, .Read) case .Err)
+			String fileNameBuffer = scope .(LOG_FILENAME_TEMPLATE.Length + 8);
+			String prevLogPath = scope .(256);
+
+			tempPathBuffer.Set(exeDirectoryPath);
+
+			Path.Combine(tempPathBuffer, "logs");
+
+			prevLogPath.Set(tempPathBuffer);
+
+			let logsDirPathLength = tempPathBuffer.Length;
+
+			for (int32 i = MAX_LOG_HISTORY_COUNT; i >= 0; i--)
+			{
+				fileNameBuffer..Clear().AppendF(LOG_FILENAME_TEMPLATE, i);
+				Path.Combine(tempPathBuffer, fileNameBuffer);
+				if (i == MAX_LOG_HISTORY_COUNT)
+				{
+					if (File.Delete(tempPathBuffer) case .Err(let err))
+					{
+						if (err != .NotFound)
+						{
+							Log.Error(scope $"Failed to delete log file '{tempPathBuffer}' ({err})");
+						}
+					}
+				}
+				else
+				{
+					if (File.Move(tempPathBuffer, prevLogPath) case .Err(let err))
+					{
+						if (err != .NotFound)
+						{
+							Log.Error(scope $"Failed to move log file '{tempPathBuffer}' ({err})");
+						}
+					}
+				}
+
+				prevLogPath.Length = logsDirPathLength;
+				Path.Combine(prevLogPath, fileNameBuffer);
+				
+				tempPathBuffer.Length = logsDirPathLength;
+			}
+
+			fileNameBuffer..Clear().AppendF(LOG_FILENAME_TEMPLATE, "latest");
+			Path.Combine(tempPathBuffer, fileNameBuffer);
+			switch (File.Move(tempPathBuffer, prevLogPath))
+			{
+				case .Ok:
+				case .Err(let err):
+				{
+					switch (err)
+					{
+						case .NotFound: break;
+						default:
+						{
+							Log.Error(scope $"Failed to move log file '{tempPathBuffer}' ({err})");
+						}
+					}
+
+				}
+			}
+
+			if (fs.Open(tempPathBuffer, FileMode.Create, .Write, .Read) case .Err(let err))
+			{
+				Log.Error(scope $"Failed to open log file for writing '{tempPathBuffer}' ({err})");
 				return 1;
-			buffer.Length = length;
+			}
 
 			Log.AddCallback(new (level, time, message, preferredFormat) => {
 				fs.Write(preferredFormat);
@@ -45,34 +119,35 @@ class Program
 		}
 		Config cfg = scope .();
 		{
-			let length = buffer.Length;
-			buffer.Append(".config.toml");
+			tempPathBuffer.Set(exeDirectoryPath);
+			Path.Combine(tempPathBuffer, CONFIG_FILENAME);
 			switch (opts)
 			{
 			case .None:
 				{
-					if (cfg.Load(buffer) case .Err(let err))
+					if (cfg.Load(tempPathBuffer) case .Err(let err))
 					{
-						 Log.Error(scope $"Failed to load config at path: '{buffer}");
+						 Log.Error(scope $"Failed to load config at path: '{tempPathBuffer}");
 						 return 1;
 					}
 				}
 			case .Install:
 				{
 					cfg.SetDefault();
-					if (cfg.Save(buffer) case .Err)
-						Log.Error(scope $"Failed to save config at path: '{buffer}");
+					if (cfg.Save(tempPathBuffer) case .Err)
+						Log.Error(scope $"Failed to save config at path: '{tempPathBuffer}");
 				}
 			case .Uninstall:
 			}
-			buffer.Length = length;
 		}
 
 		PlatformOS platform;
 #if BF_PLATFORM_WINDOWS
 		platform = scope PlatformWin32();
+#elif BF_PLATFORM_LINUX
+		platform = scope PlatformLinux();
 #endif
-
+		
 		return platform.Start(opts, debug, cfg);
 	}
 }

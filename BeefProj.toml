@@ -6,17 +6,33 @@ Name = "MQTTStatus"
 StartupObject = "MQTTStatus.Program"
 
 [Configs.Debug.Win64]
-TargetDirectory = "$(WorkspaceDir)/dist"
+TargetDirectory = "$(WorkspaceDir)/dist/win32"
 TargetName = "$(ProjectName)_x64_d"
 CLibType = "Dynamic"
-LibPaths = ["$(WorkspaceDir)/paho-mqtt3c-static.lib", "Ws2_32.lib", "Advapi32.lib", "Crypt32.lib", "bufferoverflowu.lib", "Wtsapi32.lib"]
+LibPaths = ["$(WorkspaceDir)/libs/win32/x64/paho-mqtt3c-static.lib", "Ws2_32.lib", "Advapi32.lib", "Crypt32.lib", "bufferoverflowu.lib", "Wtsapi32.lib"]
+PreBuildCmds = ["x"]
 DebugCommandArguments = "--debug"
-DebugWorkingDirectory = "$(ProjectDir)\\dist"
+DebugWorkingDirectory = "$(WorkspaceDir)\\dist\\win32"
+
+[Configs.Debug.Linux64]
+TargetDirectory = "$(WorkspaceDir)/dist/linux64"
+TargetName = "$(ProjectName)_x64_d"
+LibPaths = ["$(WorkspaceDir)/libs/linux/x64/libpaho-mqtt3c.so.1"]
+PostBuildCmds = ["CopyFilesIfNewer(\"$(WorkspaceDir)/libs/linux/x64/libpaho-mqtt3c.so.1\", \"$(TargetDir)\")"]
+DebugWorkingDirectory = "$(WorkspaceDir)/dist/linux64"
+OtherLinkFlags = "$(LinkFlags) -ldbus-1 -Wl,-E"
 
 [Configs.Release.Win64]
-TargetDirectory = "$(WorkspaceDir)/dist"
+TargetDirectory = "$(WorkspaceDir)/dist/win32"
 TargetName = "$(ProjectName)_x64"
 CLibType = "Dynamic"
-LibPaths = ["$(WorkspaceDir)/paho-mqtt3c-static.lib", "Ws2_32.lib", "Advapi32.lib", "Crypt32.lib", "bufferoverflowu.lib", "Wtsapi32.lib"]
+LibPaths = ["$(WorkspaceDir)/libs/win32/x64/paho-mqtt3c-static.lib", "Ws2_32.lib", "Advapi32.lib", "Crypt32.lib", "bufferoverflowu.lib", "Wtsapi32.lib"]
 DebugCommandArguments = "--debug"
-DebugWorkingDirectory = "$(ProjectDir)\\dist"
+DebugWorkingDirectory = "$(WorkspaceDir)/dist/win32"
+
+[Configs.Release.Linux64]
+TargetDirectory = "$(WorkspaceDir)/dist/linux64"
+TargetName = "$(ProjectName)_x64"
+LibPaths = ["$(WorkspaceDir)/libs/linux/x64/libpaho-mqtt3c.so.1"]
+PostBuildCmds = ["CopyFilesIfNewer(\"$(WorkspaceDir)/libs/linux/x64/libpaho-mqtt3c.so.1\", \"$(TargetDir)\")"]
+DebugWorkingDirectory = "$(WorkspaceDir)/dist/linux64"

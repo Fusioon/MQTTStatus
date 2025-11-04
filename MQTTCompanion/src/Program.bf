@@ -82,70 +82,6 @@ class Program
 		SendInput(1, &input, sizeof(INPUT));
 	}
 
-	static void HandleCommand(StringView command, StringView data)
-	{
-		switch (command)
-		{
-		case Client_IPCCommands.MONITOR_POWERSAVE:
-			{
-				const int SC_MONITORPOWER = 0xF170;
-				Windows.PostMessageW(.Broadcast, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
-			}
-
-		case Client_IPCCommands.LOCK_WORKSTATION:
-			{
-				LockWorkStation();
-			}
-
-		case Client_IPCCommands.NOTIFICATION:
-			{
-				StringView title = default;
-				StringView msg = data;
-				let idx = data.IndexOf('|');
-				if (idx > 0)
-				{
-					title = data.Substring(0, idx);
-					msg = data.Substring(idx + 1);
-				}
-
-				ToastNotifier.ShowNotification(title, msg).IgnoreError();
-			}
-
-		case Client_IPCCommands.AUDIO_MUTE:
-			{
-				if (AudioManager.GetMute() case .Ok(let muted))
-				{
-					AudioManager.SetMute(!muted).IgnoreError();
-				}
-			}
-
-		case Client_IPCCommands.AUDIO_SET_VOLUME:
-			{
-				if (uint32.Parse(data) case .Ok(let val))
-				{
-					AudioManager.SetVolume(Math.Clamp(val, 1, 100) / 100f).IgnoreError();
-				}
-			}
-		case Client_IPCCommands.MEDIA_STOP:
-			{
-				SendKeyboardInput(VK_MEDIA_STOP);
-			}
-		case Client_IPCCommands.MEDIA_NEXT:
-			{
-				SendKeyboardInput(VK_MEDIA_NEXT_TRACK);
-			}
-		case Client_IPCCommands.MEDIA_PREV:
-			{
-				SendKeyboardInput(VK_MEDIA_PREV_TRACK);
-			}
-
-		case Client_IPCCommands.QUIT_COMPANION:
-			{
-				PostQuitMessage(0);
-			}
-		}
-	}
-
 	static void Main(String[] args)
 	{
 		Log.Init(true, false);
@@ -184,12 +120,11 @@ class Program
 		if (AudioManager.Init() case .Err)
 			return;
 
-		MQTTCommon.IPCClient ipcClient = scope .();
+		MQTTCommon.IPCClient_T ipcClient = scope .();
 
 		AudioManager.onVolumeChanged.Add(new (muted, volume) => {
-			let volumeValue = Math.Clamp((int32)(volume * 100), 1, 100);
-			let command = scope $"{Server_IPCCommands.AUDIO_VOLUME_CHANGED}|{volumeValue}{Client_IPCCommands.COMMAND_SEPARATOR}";
-			ipcClient.Send(command).IgnoreError();
+			let volumeValue = (uint32)Math.Clamp((int32)(volume * 100), 1, 100);
+			TrySilent!(ipcClient.Send(.AudioVolumeChanged(volumeValue)));
 		});
 
 		let timer = SetTimer(0, 0, 1000, null);
@@ -220,17 +155,53 @@ class Program
 
 			defer delete message;
 
-			StringView cmd = message;
-			StringView data = default;
+			if (eClientCommand.TryParseFromMessage(message) not case .Ok(let cmd))
+				continue;
 
-			let cmdIndex = message.IndexOf('|');
-			if (cmdIndex > 0)
+			switch (cmd)
 			{
-				cmd = message.Substring(0, cmdIndex);
-				data = message.Substring(cmdIndex + 1);
-			}
+			case .MonitorPowersave:
+				{
+					const int SC_MONITORPOWER = 0xF170;
+					Windows.PostMessageW(.Broadcast, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
+				}
+			case .LockWorkstation:
+				{
+					LockWorkStation();
+				}
+			case .AudioMute:
+				{
+					if (AudioManager.GetMute() case .Ok(let muted))
+					{
+						AudioManager.SetMute(!muted).IgnoreError();
+					}
+				}
+			case .AudioSetVolume(let volume):
+				{
+					AudioManager.SetVolume(Math.Clamp(volume, 1, 100) / 100f).IgnoreError();
+				}
+			case .MediaStop:
+				{
+					SendKeyboardInput(VK_MEDIA_STOP);
+				}
+			case .MediaNext:
+				{
+					SendKeyboardInput(VK_MEDIA_NEXT_TRACK);
+				}
+			case .MediaPrev:
+				{
+					SendKeyboardInput(VK_MEDIA_PREV_TRACK);
+				}
+			case .Notification(let title, let text):
+				{
+					ToastNotifier.ShowNotification(title, text).IgnoreError();
+				}
+			case .QuitCompanion:
+				{
+					PostQuitMessage(0);
 
-			HandleCommand(cmd, data);
+				}
+			}
 		}
 	}
 }

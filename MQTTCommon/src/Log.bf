@@ -211,6 +211,7 @@ public static class Log
 			});
 		}
 
+#if BF_PLATFORM_WINDOWS
 		if (debugger)
 		{
 			AddCallback(new (level, time, message, preferredFormat) => {
@@ -219,5 +220,6 @@ public static class Log
 				System.Diagnostics.Debug.Write("\x02\n");
 			});
 		}
+#endif
 	}
 }

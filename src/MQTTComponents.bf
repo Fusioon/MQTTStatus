@@ -97,14 +97,14 @@ abstract class MQTTPublishComponent : MQTTComponent
 		{
 		case .Ok(let token):
 			{
-				if (mqtt.WaitToken(token, .FromMilliseconds(500)))
+				if (mqtt.WaitToken(token, .FromMilliseconds(1000)))
 				{
 					_isDirty = false;
 					return .Ok;
 				}
 				else
 				{
-					Log.Error(scope $"Failed to send deliver message on topic '{Topic_GET}'");
+					Log.Error(scope $"Failed to deliver message on topic '{Topic_GET}'");
 				}
 			}
 		case .Err:

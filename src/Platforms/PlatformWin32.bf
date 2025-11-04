@@ -20,10 +20,9 @@ class PlatformWin32 : PlatformOS
 	SERVICE_STATUS_HANDLE _hStatus;
 	bool _debug;
 	Config _cfg;
+	append Win32_IPCServer _ipcManager;
 
-	volatile bool _running = false;
-
-	public override bool Update(double deltaTime)
+	public override void Update(double deltaTime)
 	{
 		System.Threading.Thread.Sleep(1000);
 
@@ -32,8 +31,20 @@ class PlatformWin32 : PlatformOS
 			_serviceStatus.dwWaitHint = (.)Math.Max(0, _serviceStatus.dwWaitHint - deltaTime);
 			SetServiceStatus(_hStatus, &_serviceStatus);
 		}
-		
-		return _running;
+
+		_ipcManager.Update().IgnoreError();
+		String msg;
+		while((msg = _ipcManager.PopMessage()) != null)
+		{
+			defer delete msg;
+			if (eServerCommand.TryParseFromMessage(msg) not case .Ok(let cmd))
+			{
+				Log.Warning(scope $"Unhandled IPC message:\n------\n{msg}\n------");
+				continue;
+			}
+			
+			HandleServerCommand(cmd).IgnoreError();
+		}
 	}
 
 	protected override void QueryUserState()
@@ -252,6 +263,8 @@ class PlatformWin32 : PlatformOS
 
 		Log.Success("Service started");
 
+		Try!(_ipcManager.Init());
+
 		_running = true;
 		if (base.Run(_cfg) case .Err)
 		{
@@ -406,6 +419,12 @@ class PlatformWin32 : PlatformOS
 			}
 		}
 	}
+	
+	public override Result<void> HandleClientCommand(eClientCommand cmd)
+	{
+		_ipcManager.Send(cmd);
+	}
+	
 }
 
 #endif // BF_PLATFORM_WINDOWS
