@@ -1,7 +1,10 @@
 #if BF_PLATFORM_LINUX
 
+#define WITH_KDE
+
 using System;
 using System.Interop;
+using System.Collections;
 
 using MQTTCommon;
 
@@ -12,6 +15,7 @@ class PlatformLinux : PlatformOS
 	static class PulseAudio
 	{
 		public static bool IsAvailable { get; private set; } = true;
+		
 		public static this()
 		{
 			Runtime.AddErrorHandler(new => Handle);
@@ -326,20 +330,43 @@ class PlatformLinux : PlatformOS
 		void* ret_ptr);
 
 	[Import("libsystemd.so"), LinkName("sd_bus_get_property_string")]
-	static extern c_int SdBusGetPropertyString(Linux.DBus *bus, c_char* destination,
+	static extern c_int SdBusGetPropertyString(Linux.DBus *bus, 
+		c_char* destination,
 		c_char* path,
 		c_char* _interface,
 		c_char* member,
 		Linux.DBusErr* ret_error,
 		c_char** ret);
 
+	[Import("libsystemd.so"), LinkName("sd_bus_get_property")]
+	static extern c_int SdBusGetProperty(Linux.DBus *bus, 
+		c_char* destination,
+		c_char* path,
+		c_char* _interface,
+		c_char* member,
+		Linux.DBusErr* ret_error,
+		Linux.DBusMsg** reply,
+		c_char* type);
 
-	Linux.DBus* _dbus ~ Linux.SdBusUnref(_);
+	
+	[Import("libsystemd.so"), LinkName("sd_bus_slot_unref")]
+	static extern Linux.DBusSlot* SdBusSlotUnref(Linux.DBusSlot* slot);
+
+	Linux.DBus* _userDbus ~ Linux.SdBusUnref(_);
+	Linux.DBusSlot* _lidActionSlot ~ SdBusSlotUnref(_);
+	Linux.DBusSlot* _displayAddedSlot ~ SdBusSlotUnref(_);
+	Linux.DBusSlot* _displayRemovedSlot ~ SdBusSlotUnref(_);
+
+	Linux.DBus* _systemDbus ~ Linux.SdBusUnref(_);
+	Linux.DBusSlot* _shutdownSlot ~ SdBusSlotUnref(_);
+	Linux.DBusSlot* _sleepSlot ~ SdBusSlotUnref(_);
 	Linux.DBusErr _error;
 
 	PulseAudio.pa_context* _paContext;
 	PulseAudio.pa_mainloop* _paMainloop;
 
+
+	append HashSet<int> _monitors = .(4);
 
 	public ~this()
 	{
@@ -388,18 +415,135 @@ class PlatformLinux : PlatformOS
 		if (!Linux.IsSystemdAvailable)
 			return .Err;
 
-		if (Linux.SdBusOpenUser(&_dbus) < 0) 
+		if (Linux.SdBusOpenUser(&_userDbus) < 0) 
 		{
 			Log.Error(scope $"DBus failed to open user");
 			return .Err;
 		}
 
-		if (_dbus == null) 
+		if (_userDbus == null) 
 		{
-			Log.Error(scope $"DBus connection is NULL");
+			Log.Error(scope $"DBus User connection is NULL");
 			return .Err;
 		}
 
+		if (Linux.SdBusOpenSystem(&_systemDbus) < 0) 
+		{
+			Log.Error(scope $"DBus failed to open system");
+			return .Err;
+		}
+
+		if (_systemDbus == null) 
+		{
+			Log.Error(scope $"DBus System connection is NULL");
+			return .Err;
+		}
+
+		if (Linux.SdBusMatchSignal(_systemDbus, 
+			&_shutdownSlot, 
+			"org.freedesktop.login1", 
+			"/org/freedesktop/login1", 
+			"org.freedesktop.login1.Manager", 
+			"PrepareForShutdown", (m, userdata, err) => {
+				int32 start = ?;
+				if (Linux.SdBusMessageReadBasic(m, .Bool, &start) < 0)
+				{
+					Log.Error("Failed to read 'PrepareForShutdown' start value");
+					return 0;
+				}
+				let _this = (Self)Internal.UnsafeCastToObject(userdata);
+				_this.OnShutdown(start != 0);
+				return 0;
+			}, Internal.UnsafeCastToPtr(this)) < 0) 
+			{
+				Log.Error("Failed to add signal handler for PrepareForShutdown");
+			}
+
+#if WITH_KDE
+
+		static mixin ReadDisplayName(Linux.DBusMsg* msg)
+		{
+			c_char* ptr = default;
+			if (Linux.SdBusMessageReadBasic(msg, .String, &ptr) < 0)
+			{
+				Log.Error("Failed to retrieve display name");
+			}
+
+			StringView(ptr)
+		}
+
+		if (Linux.SdBusMatchSignal(_userDbus, 
+			&_displayAddedSlot, 
+			"org.kde.ScreenBrightness",
+			"/org/kde/ScreenBrightness",
+			"org.kde.ScreenBrightness",
+			"DisplayAdded", (m, userdata, ret_error) => {
+				let name = ReadDisplayName!(m);
+				((Self)Internal.UnsafeCastToObject(userdata)).DisplayEvent(true, name);
+				return 0;
+			}, 
+		Internal.UnsafeCastToPtr(this)) < 0)
+		{
+			Log.Error("Failed to add signal handler for DisplayAdded");
+		}
+
+		if (Linux.SdBusMatchSignal(_userDbus, 
+			&_displayRemovedSlot, 
+			"org.kde.ScreenBrightness",
+			"/org/kde/ScreenBrightness",
+			"org.kde.ScreenBrightness",
+			"DisplayRemoved", (m, userdata, ret_error) => {
+				let name = ReadDisplayName!(m);
+				((Self)Internal.UnsafeCastToObject(userdata)).DisplayEvent(false, name);
+				return 0;
+			}, 
+		Internal.UnsafeCastToPtr(this)) < 0)
+		{
+			Log.Error("Failed to add signal handler for DisplayRemoved");
+		}
+
+		do 
+		{
+			Linux.DBusMsg* reply = null;
+			if (SdBusGetProperty(_userDbus, 
+				"org.kde.Solid.PowerManagement", 
+				"/org/kde/ScreenBrightness",
+				"org.kde.ScreenBrightness",
+				"DisplaysDBusNames",
+				&_error,
+				&reply, 
+				"as") < 0) 
+			{
+				let name = StringView(_error.name);
+				let message = StringView (_error.message);
+				Log.Error(scope $"DBus Failed to DisplaysDBusNames container ({name}) ({message})");
+				Linux.SdBusErrorFree(&_error);
+				break;
+			}
+			defer Linux.SdBusMessageUnref(reply);
+
+			if (Linux.SdBusMessageEnterContainer(reply, .Array, "s") < 0)
+			{
+				Log.Error("DBus Failed to enter container for DisplaysDBusNames");
+				break;
+			}
+
+			c_char* name = null;
+			c_int r = 0;
+			int count = 0;
+			while ((r = Linux.SdBusMessageReadBasic(reply, .String, &name)) > 0)
+			{
+				count++;
+				StringView nameView = .(name);
+				let nameHash = nameView.GetHashCode();
+				_monitors.Add(nameHash);
+			}
+
+			Linux.SdBusMessageExitContainer(reply);
+		}
+		
+
+#endif
 		if (PulseAudio.IsAvailable)
 		{
 			_paMainloop = PulseAudio.MainLoopNew();
@@ -442,7 +586,7 @@ class PlatformLinux : PlatformOS
 	protected override void QueryUserState()
 	{
 		Linux.DBusMsg* responseMsg = null;
-		TrySilent!(SdBusCall("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", &responseMsg));
+		TrySilent!(SdBusCall(_userDbus, "org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", &responseMsg));
 		defer Linux.SdBusMessageUnref(responseMsg);
 
 		int32 result = 0;
@@ -470,20 +614,52 @@ class PlatformLinux : PlatformOS
 
 	protected override void QueryMonitorState()
 	{
-		base.QueryMonitorState();
+		SendEvent(.MonitorPower(_monitors.Count > 0));
 	}
 
 	public override void Update(double deltaTime)
 	{
+		Linux.SdBusWait(_systemDbus, 1000);
+
+		int32 r;
+		while ((r = Linux.SdBusProcess(_systemDbus, null)) > 0) 
+		{ }
+		
+		if (r < 0)
+			Log.Error(scope $"DBus system process failed ({r})");
+
+		while ((r = Linux.SdBusProcess(_userDbus, null)) > 0) 
+		{ }
+
+		if (r < 0)
+			Log.Error(scope $"DBus user process failed ({r})");
+
 		if (PulseAudio.IsAvailable)
 		{
 			PulseAudio.MainLoopIterate(_paMainloop, 0, ?);
 		}
 	}
-	
-	Result<void> SdBusCall(String destination, String path, String iface, String member, Linux.DBusMsg** reply)
+
+	void OnShutdown(bool start)
 	{
-		let result = Linux.SdBusCallMethod(_dbus, destination.CStr(), path.CStr(), iface.CStr(), member.CStr(), &_error, reply, "");
+		Log.Trace(scope $"OnShutdown {start}");
+		SendEvent(.Shutdown);
+	}
+
+	void DisplayEvent(bool added, StringView name)
+	{
+		let displayHash = name.GetHashCode();
+		if (added)
+			_monitors.Add(displayHash);
+		else
+			_monitors.Remove(displayHash);
+
+		SendEvent(.MonitorPower(_monitors.Count > 0));
+	}
+	
+	Result<void> SdBusCall(Linux.DBus* dbus, String destination, String path, String iface, String member, Linux.DBusMsg** reply)
+	{
+		let result = Linux.SdBusCallMethod(dbus, destination.CStr(), path.CStr(), iface.CStr(), member.CStr(), &_error, reply, "");
 
 		if (result< 0)
 		{
@@ -497,9 +673,9 @@ class PlatformLinux : PlatformOS
 		return .Ok;
 	}
 
-	Result<void> SdBusCallArgs<Args>(String destination, String path, String iface, String member, Linux.DBusMsg** reply, String types, params Args args) where Args : Tuple
+	Result<void> SdBusCallArgs<Args>(Linux.DBus* dbus, String destination, String path, String iface, String member, Linux.DBusMsg** reply, String types, params Args args) where Args : Tuple
 	{
-		let result = Linux.SdBusCallMethod(_dbus, destination.CStr(), path.CStr(), iface.CStr(), member.CStr(), &_error, reply, types.CStr(), params args);
+		let result = Linux.SdBusCallMethod(dbus, destination.CStr(), path.CStr(), iface.CStr(), member.CStr(), &_error, reply, types.CStr(), params args);
 
 		if (result < 0)
 		{
@@ -515,23 +691,23 @@ class PlatformLinux : PlatformOS
 
 	Result<void> MonitorPowerSave()
 	{
-		return SdBusCallArgs("org.kde.kglobalaccel", "/component/org_kde_powerdevil", "org.kde.kglobalaccel.Component", "invokeShortcut", null, "s", "Turn Off Screen".CStr());
+		return SdBusCallArgs(_userDbus, "org.kde.kglobalaccel", "/component/org_kde_powerdevil", "org.kde.kglobalaccel.Component", "invokeShortcut", null, "s", "Turn Off Screen".CStr());
 	}
 
 	Result<void> LockWorkstation()
 	{
-		return SdBusCall("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "Lock", null);
+		return SdBusCall(_userDbus, "org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "Lock", null);
 	}
 
 	Result<void> ToggleAudioMute()
 	{
-		return SdBusCallArgs("org.kde.kglobalaccel", "/component/kmix", "org.kde.kglobalaccel.Component", "invokeShortcut", null, "s", "mute".CStr());
+		return SdBusCallArgs(_userDbus, "org.kde.kglobalaccel", "/component/kmix", "org.kde.kglobalaccel.Component", "invokeShortcut", null, "s", "mute".CStr());
 	}
 
-	Result<void> ForEachDBusListName(delegate bool(StringView name) forEach)
+	Result<void> ForEachDBusListName(Linux.DBus* dbus, delegate bool(StringView name) forEach)
 	{	
 		Linux.DBusMsg* responseMsg = null;
-		Try!(SdBusCall("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "ListNames", &responseMsg));
+		Try!(SdBusCall(dbus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "ListNames", &responseMsg));
 		defer Linux.SdBusMessageUnref(responseMsg);
 
 		if (Linux.SdBusMessageEnterContainer(responseMsg, .Array, "s") < 0)
@@ -572,13 +748,13 @@ class PlatformLinux : PlatformOS
 
 	Result<void> ForEachMediaPlayer(delegate bool(StringView name, ePlaybackStatus status) forEach)
 	{
-		return ForEachDBusListName(scope (name) => {
+		return ForEachDBusListName(_userDbus, scope (name) => {
 			const String MPRIS_PREFIX = "org.mpris.MediaPlayer2";
 			if (!name.StartsWith(MPRIS_PREFIX))
 				return true;
 
 			c_char* playbackStatus = null; 
-			if (SdBusGetPropertyString(_dbus, 
+			if (SdBusGetPropertyString(_userDbus, 
 				name.Ptr, 
 				"/org/mpris/MediaPlayer2", 
 				"org.mpris.MediaPlayer2.Player", 
@@ -629,7 +805,7 @@ class PlatformLinux : PlatformOS
 			if (status != .Playing)
 				return true;
 
-			if (Linux.SdBusCallMethod(_dbus, name.Ptr, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player", methodName.CStr(), &_error, null, "") < 0)
+			if (Linux.SdBusCallMethod(_userDbus, name.Ptr, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player", methodName.CStr(), &_error, null, "") < 0)
 			{
 				let errMsg = StringView(_error.message);
 				Log.Error(scope $"DBus Failed to call {methodName} on '{name}'. ({errMsg})");
@@ -645,7 +821,7 @@ class PlatformLinux : PlatformOS
 	{
 		const String APP = Compiler.ProjectName;
 
-		return SdBusCallArgs("org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "Notify", null, "susssasa{sv}i", 
+		return SdBusCallArgs(_userDbus, "org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "Notify", null, "susssasa{sv}i", 
 			APP.CStr(), 0, "".CStr(), title.ToScopeCStr!(), text.ToScopeCStr!(), null, 0, -1
 		);
 	}

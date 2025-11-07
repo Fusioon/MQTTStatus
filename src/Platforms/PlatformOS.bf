@@ -413,7 +413,6 @@ abstract class PlatformOS
 			}
 		}
 
-		SendEvent(.Shutdown);
 		return .Ok;
 	}
 
