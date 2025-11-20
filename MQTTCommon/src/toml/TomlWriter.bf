@@ -391,10 +391,11 @@ namespace Fusion.TOML
 			scope WriterInstance<StreamTomlWriter>(config, scope .(stream)).Write(doc);
 		}
 
-		public static Result<void, FileOpenError> WriteToFile(TomlDocument doc, TomlWriterConfig config, StringView filePath)
+		public static Result<void, FileOpenError> WriteToFile(TomlDocument doc, TomlWriterConfig config, StringView filePath, bool allowOverwrite)
 		{
 			FileStream fs = scope .();
-			if(fs.Open(filePath, .Create, .Write) case .Err(let err))
+
+			if(fs.Open(filePath, (allowOverwrite ? FileMode.Create : FileMode.CreateNew) , .Write) case .Err(let err))
 				return .Err(err);
 
 			WriteToStream(doc, config, fs);

@@ -16,6 +16,7 @@ class Program
 	{
 		EServiceOptions opts = .None;
 		bool debug = false;
+		bool force = false; // Force generation of config file
 
 		for (let a in args)
 		{
@@ -24,6 +25,7 @@ class Program
 			case "--install": opts = .Install;
 			case "--uninstall": opts = .Uninstall;
 			case "--debug": debug = true;
+			case "--force": force = true;
 			}
 
 		}
@@ -134,7 +136,7 @@ class Program
 			case .Install:
 				{
 					cfg.SetDefault();
-					if (cfg.Save(tempPathBuffer) case .Err)
+					if (cfg.Save(tempPathBuffer, force) case .Err)
 						Log.Error(scope $"Failed to save config at path: '{tempPathBuffer}");
 				}
 			case .Uninstall:

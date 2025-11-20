@@ -72,6 +72,9 @@ class Config
 		protected set => _deviceName.Set(value);
 	}
 
+	protected bool _shutdownOnExit = false;
+	public bool ShutdownOnExit => _shutdownOnExit;
+	
 	public void SetDefault()
 	{
 		Address = "mqtt://127.0.0.1:1883";
@@ -84,6 +87,8 @@ class Config
 
 		ClientId = "0AB10FU0";
 		DeviceName = "Puter";
+
+		_shutdownOnExit = false;
 	}
 
 	public Result<void> Load(StringView path)
@@ -122,6 +127,7 @@ class Config
 		{
 			_clientID.Set(dev[nameof(ClientId)].GetValueOrDefault().AsString().GetValueOrDefault());
 			_deviceName.Set(dev[nameof(DeviceName)].GetValueOrDefault().AsString().GetValueOrDefault());
+			_shutdownOnExit = dev[nameof(ShutdownOnExit)].GetValueOrDefault().AsBool().GetValueOrDefault();
 		}
 
 		if (let log = doc[HEADER_LOGGING].GetValueOrDefault().AsObject())
@@ -143,7 +149,7 @@ class Config
 		return .Ok;
 	}
 
-	public Result<void> Save(StringView path)
+	public Result<void> Save(StringView path, bool allowOverwrite = true)
 	{
 		TomlDocument doc = scope .();
 
@@ -163,6 +169,7 @@ class Config
 		{
 			dev.AddValue(nameof(ClientId), _clientID);
 			dev.AddValue(nameof(DeviceName), _deviceName);
+			dev.AddValue(nameof(ShutdownOnExit), _shutdownOnExit);
 		}
 		if (let log = doc.AddObject(HEADER_LOGGING))
 		{
@@ -170,7 +177,7 @@ class Config
 			log.AddValue(nameof(Log.LogCallerPathMinLevel), Log.LogCallerPathMinLevel.Underlying);
 		}
 
-		TrySilent!(TomlWriter.WriteToFile(doc, .() { flags = .PrettyPrint | .UseHeaders | .NoArrayHeaders, maxInlineElements = 4 }, path));
+		TrySilent!(TomlWriter.WriteToFile(doc, .() { flags = .PrettyPrint | .UseHeaders | .NoArrayHeaders, maxInlineElements = 4 }, path, allowOverwrite));
 		return .Ok;
 	}
 }

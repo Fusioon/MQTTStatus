@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=MQTTStatus
+Comment=Runs MQTTStatus as background service
+Exec={0}
+Icon=system-run
+Terminal=false
+StartupNotify=false
+Categories=Utility;
+Hidden=false

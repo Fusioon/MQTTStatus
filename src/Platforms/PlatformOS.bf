@@ -263,10 +263,10 @@ abstract class PlatformOS
 				comp.SubscribeTopic(subscribe);
 			}
 
-			let topic = FormatPayloadsString(.. scope .(DISCOVERY_TOPIC), cfg, null);
-			let payload = FormatPayloadsString(.. scope .(DISCOVERY_PAYLOAD), cfg, componentsString);
+			let topicString = FormatPayloadsString(.. scope .(DISCOVERY_TOPIC), cfg, null);
+			let payloadString = FormatPayloadsString(.. scope .(DISCOVERY_PAYLOAD), cfg, componentsString);
 
-			switch (mqtt.SendMessage(topic, payload))
+			switch (mqtt.SendMessage(topicString, payloadString))
 			{
 			case .Ok(let token):
 				{
@@ -368,7 +368,9 @@ abstract class PlatformOS
 
 
 		List<MQTTComponent> remainingDirtyComponents = scope .();
-		while (_running)
+
+		bool lastUpdate = false;
+		while (_running || lastUpdate)
 		{
 			let deltaTime = sw.ElapsedMilliseconds;
 			sw.Restart();
@@ -411,6 +413,11 @@ abstract class PlatformOS
 					remainingDirtyComponents.Clear();
 				}
 			}
+
+			if (lastUpdate)
+				break;
+
+			lastUpdate = !_running;
 		}
 
 		return .Ok;

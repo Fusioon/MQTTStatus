@@ -17,10 +17,10 @@ DebugWorkingDirectory = "$(WorkspaceDir)\\dist\\win32"
 [Configs.Debug.Linux64]
 TargetDirectory = "$(WorkspaceDir)/dist/linux64"
 TargetName = "$(ProjectName)_x64_d"
+OtherLinkFlags = "$(LinkFlags) -ldbus-1 -Wl,-E"
 LibPaths = ["$(WorkspaceDir)/libs/linux/x64/libpaho-mqtt3c.so.1"]
 PostBuildCmds = ["CopyFilesIfNewer(\"$(WorkspaceDir)/libs/linux/x64/libpaho-mqtt3c.so.1\", \"$(TargetDir)\")"]
 DebugWorkingDirectory = "$(WorkspaceDir)/dist/linux64"
-OtherLinkFlags = "$(LinkFlags) -ldbus-1 -Wl,-E"
 
 [Configs.Release.Win64]
 TargetDirectory = "$(WorkspaceDir)/dist/win32"
@@ -36,3 +36,8 @@ TargetName = "$(ProjectName)_x64"
 LibPaths = ["$(WorkspaceDir)/libs/linux/x64/libpaho-mqtt3c.so.1"]
 PostBuildCmds = ["CopyFilesIfNewer(\"$(WorkspaceDir)/libs/linux/x64/libpaho-mqtt3c.so.1\", \"$(TargetDir)\")"]
 DebugWorkingDirectory = "$(WorkspaceDir)/dist/linux64"
+
+[[ProjectFolder.Items]]
+Type = "Folder"
+Path = "assets"
+AutoInclude = true

@@ -3,3 +3,4 @@ Projects = {MQTTStatus = {Path = "."}, MQTTCommon = {Path = "MQTTCommon"}}
 
 [Workspace]
 StartupProject = "MQTTStatus"
+PreprocessorMacros = ["WITH_KDE"]

@@ -1,14 +1,113 @@
 #if BF_PLATFORM_LINUX
 
-#define WITH_KDE
-
 using System;
 using System.Interop;
 using System.Collections;
+using System.IO;
 
 using MQTTCommon;
 
 namespace MQTTStatus;
+
+public class LinuxPathHelper
+{
+	typealias uid_t = uint32;
+	typealias gid_t = uint32;
+
+	[CRepr]
+	struct passwd
+	{
+		public c_char   *pw_name;       /* username */
+		public c_char   *pw_passwd;     /* user password */
+		public uid_t   pw_uid;        /* user ID */
+		public gid_t   pw_gid;        /* group ID */
+		public c_char   *pw_gecos;      /* user information */
+		public c_char   *pw_dir;        /* home directory */
+		public c_char   *pw_shell;      /* shell program */
+	}
+
+	[CLink]
+	static extern uid_t getuid();
+
+	[CLink]
+	static extern passwd* getpwuid(uid_t uid);
+
+	static String sUserHomeDir ~ delete _;
+
+	static void Init()
+	{
+		if (sUserHomeDir != null)
+			return;
+
+		sUserHomeDir = new .();
+
+		let user = getuid();
+		if (let pwd = getpwuid(user))
+		{
+			sUserHomeDir.Append(pwd.pw_dir);
+			Log.Trace(sUserHomeDir);
+		}
+	}
+
+
+	public static void MakeAbsolute(String path)
+	{
+		if (path.StartsWith('~'))
+		{
+			Init();
+			path.Replace(0, 1, sUserHomeDir);
+		}
+	}
+}
+
+class Autostart
+{
+	const String AUTOSTART_DATA = Compiler.ReadText("assets/autostart.desktop");
+	const String PATH = "~/.config/autostart";
+
+	const String FILENAME = Compiler.ProjectName + ".desktop";
+
+	public static Result<void> Enable()
+	{
+		String  outFilePath = scope .(PATH);
+		LinuxPathHelper.MakeAbsolute(outFilePath);
+
+		if (Directory.CreateDirectory(outFilePath) case .Err(let err) && err != .AlreadyExists)
+		{
+			Log.Error(scope $"Failed to create directory at '{PATH}' ({err})");
+			return .Err;
+		}
+
+		String exePath = scope .(256);
+		Environment.GetExecutableFilePath(exePath);
+		String contents = scope .(AUTOSTART_DATA.Length + exePath.Length);
+		contents.AppendF(AUTOSTART_DATA, exePath);
+
+		Path.Combine(outFilePath, FILENAME);
+		if (File.WriteAllText(outFilePath, contents) case .Err)
+		{
+			Log.Error(scope $"Failed to write directory file '{PATH}'");
+			return .Err;
+		}
+
+		Log.Success(scope $"Autostart created '{FILENAME}'");
+		return .Ok;
+	}
+
+	public static void Disable()
+	{
+		let outFilePath = Path.Combine(.. scope String(), PATH, FILENAME);
+		LinuxPathHelper.MakeAbsolute(outFilePath);
+
+		if (File.Delete(outFilePath) case .Err(let err))
+		{
+			Log.Error(scope $"Failed to delete '{FILENAME}' file ({err})");
+			return;
+		}
+
+		Log.Success(scope $"Autostart removed '{FILENAME}'");
+	}
+}
 
 class PlatformLinux : PlatformOS
 {
@@ -351,11 +450,18 @@ class PlatformLinux : PlatformOS
 	
 	[Import("libsystemd.so"), LinkName("sd_bus_slot_unref")]
 	static extern Linux.DBusSlot* SdBusSlotUnref(Linux.DBusSlot* slot);
+	
+	[Import("libsystemd.so"), LinkName("sd_bus_add_match")]
+	static extern c_int SdBusAddMatch(Linux.DBus* bus, Linux.DBusSlot** slot, c_char* match, function c_int(Linux.DBusMsg* msg, void* userdata, Linux.DBusErr* retError), void* userdata);
+
+	
+	[Import("libsystemd.so"), LinkName("sd_bus_request_name")]
+	static extern c_int SdBusRequestName(Linux.DBus* bus, c_char* name, uint64 flags);
+
 
 	Linux.DBus* _userDbus ~ Linux.SdBusUnref(_);
-	Linux.DBusSlot* _lidActionSlot ~ SdBusSlotUnref(_);
-	Linux.DBusSlot* _displayAddedSlot ~ SdBusSlotUnref(_);
-	Linux.DBusSlot* _displayRemovedSlot ~ SdBusSlotUnref(_);
+	Linux.DBusSlot* _monitorSleepSlot ~ SdBusSlotUnref(_);
+	Linux.DBusSlot* _monitorWakeUp ~ SdBusSlotUnref(_);
 
 	Linux.DBus* _systemDbus ~ Linux.SdBusUnref(_);
 	Linux.DBusSlot* _shutdownSlot ~ SdBusSlotUnref(_);
@@ -366,11 +472,9 @@ class PlatformLinux : PlatformOS
 	PulseAudio.pa_mainloop* _paMainloop;
 
 
-	append HashSet<int> _monitors = .(4);
-
 	public ~this()
 	{
-		if (PulseAudio.IsAvailable)
+		if (PulseAudio.IsAvailable && _paContext != null)
 		{
 			PulseAudio.ContextDisconnect(_paContext);
 			PulseAudio.ContextUnref(_paContext);
@@ -380,15 +484,42 @@ class PlatformLinux : PlatformOS
 
 	public override int32 Start(EServiceOptions serviceOpts, bool debug, Config cfg)
 	{
-		if (serviceOpts == .None)
+		mixin CheckReturn<T>(Result<T> result)
 		{
-			if (Run(cfg) case .Ok)
-				return 0;
+			if (result case .Err)
+				return 1;
 
-			return 1;
+			result.Get()
 		}
 
-		return 1;
+		switch (serviceOpts)
+		{
+		case .Install:
+			{
+				CheckReturn!(Autostart.Enable());
+#if WITH_KDE
+				CheckReturn!(kwinInstaller.Install());
+#endif
+			}
+
+
+		case .Uninstall:
+			{
+				Autostart.Disable();
+
+#if WITH_KDE
+				CheckReturn!(kwinInstaller.Uninstall());
+#endif
+			}
+
+		case .None:
+			{
+				CheckReturn!(Run(cfg));
+			}
+
+		}
+
+		return 0;
 	}
 
 	void SinkInfoCallback(PulseAudio.pa_context context, PulseAudio.pa_sink_info* i, c_int eol)
@@ -461,87 +592,35 @@ class PlatformLinux : PlatformOS
 
 #if WITH_KDE
 
-		static mixin ReadDisplayName(Linux.DBusMsg* msg)
-		{
-			c_char* ptr = default;
-			if (Linux.SdBusMessageReadBasic(msg, .String, &ptr) < 0)
-			{
-				Log.Error("Failed to retrieve display name");
-			}
+		if (SdBusRequestName(_userDbus, "org.kde.kwin.ScreenPower", 0) < 0)
+			Log.Error("Failed to acquire service 'org.kde.kwin.ScreenPower' name");
 
-			StringView(ptr)
-		}
-
-		if (Linux.SdBusMatchSignal(_userDbus, 
-			&_displayAddedSlot, 
-			"org.kde.ScreenBrightness",
-			"/org/kde/ScreenBrightness",
-			"org.kde.ScreenBrightness",
-			"DisplayAdded", (m, userdata, ret_error) => {
-				let name = ReadDisplayName!(m);
-				((Self)Internal.UnsafeCastToObject(userdata)).DisplayEvent(true, name);
+		// org.kde.kwin.ScreenPower
+		if (SdBusAddMatch(_userDbus, 
+			&_monitorSleepSlot, 
+			"type='method_call',interface='org.kde.kwin.ScreenPower',member='aboutToTurnOff'",
+			(m, userdata, err) => {
+				let _this = (Self)Internal.UnsafeCastToObject(userdata);
+				_this.SendEvent(.MonitorPower(false));
 				return 0;
-			}, 
-		Internal.UnsafeCastToPtr(this)) < 0)
-		{
-			Log.Error("Failed to add signal handler for DisplayAdded");
-		}
-
-		if (Linux.SdBusMatchSignal(_userDbus, 
-			&_displayRemovedSlot, 
-			"org.kde.ScreenBrightness",
-			"/org/kde/ScreenBrightness",
-			"org.kde.ScreenBrightness",
-			"DisplayRemoved", (m, userdata, ret_error) => {
-				let name = ReadDisplayName!(m);
-				((Self)Internal.UnsafeCastToObject(userdata)).DisplayEvent(false, name);
-				return 0;
-			}, 
-		Internal.UnsafeCastToPtr(this)) < 0)
-		{
-			Log.Error("Failed to add signal handler for DisplayRemoved");
-		}
-
-		do 
-		{
-			Linux.DBusMsg* reply = null;
-			if (SdBusGetProperty(_userDbus, 
-				"org.kde.Solid.PowerManagement", 
-				"/org/kde/ScreenBrightness",
-				"org.kde.ScreenBrightness",
-				"DisplaysDBusNames",
-				&_error,
-				&reply, 
-				"as") < 0) 
+			}, Internal.UnsafeCastToPtr(this)) < 0) 
 			{
-				let name = StringView(_error.name);
-				let message = StringView (_error.message);
-				Log.Error(scope $"DBus Failed to DisplaysDBusNames container ({name}) ({message})");
-				Linux.SdBusErrorFree(&_error);
-				break;
-			}
-			defer Linux.SdBusMessageUnref(reply);
-
-			if (Linux.SdBusMessageEnterContainer(reply, .Array, "s") < 0)
-			{
-				Log.Error("DBus Failed to enter container for DisplaysDBusNames");
-				break;
+				Log.Error("Failed to add handler for Monitor sleep");
 			}
 
-			c_char* name = null;
-			c_int r = 0;
-			int count = 0;
-			while ((r = Linux.SdBusMessageReadBasic(reply, .String, &name)) > 0)
-			{
-				count++;
-				StringView nameView = .(name);
-				let nameHash = nameView.GetHashCode();
-				_monitors.Add(nameHash);
-			}
-
-			Linux.SdBusMessageExitContainer(reply);
-		}
 		
+
+		if (SdBusAddMatch(_userDbus, 
+			&_monitorWakeUp, 
+			"type='method_call',interface='org.kde.kwin.ScreenPower',member='wakeUp'",
+			(m, userdata, err) => {
+				let _this = (Self)Internal.UnsafeCastToObject(userdata);
+				_this.SendEvent(.MonitorPower(true));
+				return 0;
+			}, Internal.UnsafeCastToPtr(this)) < 0) 
+			{
+				Log.Error("Failed to add handler for Monitor wakeup");
+			}
 
 #endif
 		if (PulseAudio.IsAvailable)
@@ -614,7 +693,7 @@ class PlatformLinux : PlatformOS
 
 	protected override void QueryMonitorState()
 	{
-		SendEvent(.MonitorPower(_monitors.Count > 0));
+		SendEvent(.MonitorPower(true));
 	}
 
 	public override void Update(double deltaTime)
@@ -646,17 +725,6 @@ class PlatformLinux : PlatformOS
 		SendEvent(.Shutdown);
 	}
 
-	void DisplayEvent(bool added, StringView name)
-	{
-		let displayHash = name.GetHashCode();
-		if (added)
-			_monitors.Add(displayHash);
-		else
-			_monitors.Remove(displayHash);
-
-		SendEvent(.MonitorPower(_monitors.Count > 0));
-	}
-	
 	Result<void> SdBusCall(Linux.DBus* dbus, String destination, String path, String iface, String member, Linux.DBusMsg** reply)
 	{
 		let result = Linux.SdBusCallMethod(dbus, destination.CStr(), path.CStr(), iface.CStr(), member.CStr(), &_error, reply, "");
