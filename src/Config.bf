@@ -7,6 +7,13 @@ namespace MQTTStatus;
 
 class Config
 {
+	public enum RWError
+	{
+		case Unknown;
+		case FileError(System.IO.FileOpenError);
+		case FormatError;
+	}
+
 	const String HEADER_CONNECTION = "Connection";
 	const String HEADER_DEVICE = "Device";
 	const String HEADER_LOGGING = "Logging";
@@ -74,7 +81,7 @@ class Config
 
 	protected bool _shutdownOnExit = false;
 	public bool ShutdownOnExit => _shutdownOnExit;
-	
+
 	public void SetDefault()
 	{
 		Address = "mqtt://127.0.0.1:1883";
@@ -91,7 +98,7 @@ class Config
 		_shutdownOnExit = false;
 	}
 
-	public Result<void> Load(StringView path)
+	public Result<void, RWError> Load(StringView path)
 	{
 		TomlDocument doc = scope .();
 		switch (doc.ReadFromFile(path))
@@ -99,7 +106,13 @@ class Config
 		case .Err(let err):
 			{
 				Log.Error(scope $"[TOML] Failed to read file ({err}).");
-				return .Err;
+				switch (err)
+				{
+				case .UnexpectedToken, .ParseError:
+					return .Err(RWError.FormatError);
+				case .FileOpenError(let fe):
+					return .Err(RWError.FileError(fe));
+				}
 			}
 		case .Ok:
 		}
@@ -149,7 +162,7 @@ class Config
 		return .Ok;
 	}
 
-	public Result<void> Save(StringView path, bool allowOverwrite = true)
+	public Result<void, RWError> Save(StringView path, bool allowOverwrite = true)
 	{
 		TomlDocument doc = scope .();
 
@@ -177,7 +190,10 @@ class Config
 			log.AddValue(nameof(Log.LogCallerPathMinLevel), Log.LogCallerPathMinLevel.Underlying);
 		}
 
-		TrySilent!(TomlWriter.WriteToFile(doc, .() { flags = .PrettyPrint | .UseHeaders | .NoArrayHeaders, maxInlineElements = 4 }, path, allowOverwrite));
+		if (TomlWriter.WriteToFile(doc, .() { flags = .PrettyPrint | .UseHeaders | .NoArrayHeaders, maxInlineElements = 4 }, path, allowOverwrite) case .Err(let err))
+		{
+			return .Err(RWError.FileError(err));
+		}
 		return .Ok;
 	}
 }

@@ -458,6 +458,265 @@ class PlatformLinux : PlatformOS
 	[Import("libsystemd.so"), LinkName("sd_bus_request_name")]
 	static extern c_int SdBusRequestName(Linux.DBus* bus, c_char* name, uint64 flags);
 
+	[AllowDuplicates]
+	enum SigNum : c_int
+	{
+	    /// <summary>
+	    /// Hangup detected on controlling terminal or death of controlling process.
+	    /// </summary>
+	    SIGHUP = 1,
+
+	    /// <summary>
+	    /// Interrupt from keyboard (Ctrl+C).
+	    /// </summary>
+	    SIGINT = 2,
+
+	    /// <summary>
+	    /// Quit from keyboard (Ctrl+\).
+	    /// </summary>
+	    SIGQUIT = 3,
+
+	    /// <summary>
+	    /// Illegal Instruction.
+	    /// </summary>
+	    SIGILL = 4,
+
+	    /// <summary>
+	    /// Trace/breakpoint trap.
+	    /// </summary>
+	    SIGTRAP = 5,
+
+	    /// <summary>
+	    /// Abort signal from abort().
+	    /// </summary>
+	    SIGABRT = 6,
+
+	    /// <summary>
+	    /// IOT trap. A synonym for SIGABRT.
+	    /// </summary>
+	    SIGIOT = 6,
+
+	    /// <summary>
+	    /// Bus error (bad memory access).
+	    /// </summary>
+	    SIGBUS = 7,
+
+	    /// <summary>
+	    /// Floating-point exception.
+	    /// </summary>
+	    SIGFPE = 8,
+
+	    /// <summary>
+	    /// Kill signal. Cannot be caught or ignored.
+	    /// </summary>
+	    SIGKILL = 9,
+
+	    /// <summary>
+	    /// User-defined signal 1.
+	    /// </summary>
+	    SIGUSR1 = 10,
+
+	    /// <summary>
+	    /// Invalid memory reference (Segmentation Fault).
+	    /// </summary>
+	    SIGSEGV = 11,
+
+	    /// <summary>
+	    /// User-defined signal 2.
+	    /// </summary>
+	    SIGUSR2 = 12,
+
+	    /// <summary>
+	    /// Broken pipe: write to pipe with no readers.
+	    /// </summary>
+	    SIGPIPE = 13,
+
+	    /// <summary>
+	    /// Timer signal from alarm().
+	    /// </summary>
+	    SIGALRM = 14,
+
+	    /// <summary>
+	    /// Termination signal.
+	    /// </summary>
+	    SIGTERM = 15,
+
+	    /// <summary>
+	    /// Stack fault on coprocessor (mostly unused/reserved).
+	    /// </summary>
+	    SIGSTKFLT = 16,
+
+	    /// <summary>
+	    /// Child stopped or terminated.
+	    /// </summary>
+	    SIGCHLD = 17,
+
+	    /// <summary>
+	    /// Continue if stopped.
+	    /// </summary>
+	    SIGCONT = 18,
+
+	    /// <summary>
+	    /// Stop process. Cannot be caught or ignored.
+	    /// </summary>
+	    SIGSTOP = 19,
+
+	    /// <summary>
+	    /// Stop typed at terminal (Ctrl+Z).
+	    /// </summary>
+	    SIGTSTP = 20,
+
+	    /// <summary>
+	    /// Terminal input for background process.
+	    /// </summary>
+	    SIGTTIN = 21,
+
+	    /// <summary>
+	    /// Terminal output for background process.
+	    /// </summary>
+	    SIGTTOU = 22,
+
+	    /// <summary>
+	    /// Urgent condition on socket.
+	    /// </summary>
+	    SIGURG = 23,
+
+	    /// <summary>
+	    /// CPU time limit exceeded.
+	    /// </summary>
+	    SIGXCPU = 24,
+
+	    /// <summary>
+	    /// File size limit exceeded.
+	    /// </summary>
+	    SIGXFSZ = 25,
+
+	    /// <summary>
+	    /// Virtual alarm clock.
+	    /// </summary>
+	    SIGVTALRM = 26,
+
+	    /// <summary>
+	    /// Profiling timer expired.
+	    /// </summary>
+	    SIGPROF = 27,
+
+	    /// <summary>
+	    /// Window resize signal.
+	    /// </summary>
+	    SIGWINCH = 28,
+
+	    /// <summary>
+	    /// I/O now possible.
+	    /// </summary>
+	    SIGIO = 29,
+
+	    /// <summary>
+	    /// Pollable event (Synonym for SIGIO).
+	    /// </summary>
+	    SIGPOLL = 29,
+
+	    /// <summary>
+	    /// Power failure.
+	    /// </summary>
+	    SIGPWR = 30,
+
+	    /// <summary>
+	    /// Bad system call.
+	    /// </summary>
+	    SIGSYS = 31
+	}
+
+	[CRepr]
+	struct sigaction
+	{
+		typealias sigset_t = c_uint;
+		typealias pid_t = c_uint;
+		typealias uid_t = c_uint;
+		[CRepr]
+		public struct siginfo_t
+		{
+			public c_int		si_signo;  /* Signal number */
+			public c_int		si_code;   /* Signal code */
+			public pid_t		si_pid;    /* Sending process ID */
+			public uid_t		si_uid;    /* Real user ID of sending process */
+			public void* 		si_addr;   /* Memory location which caused fault */
+			public c_int		si_status; /* Exit value or signal */
+			[CRepr, Union]
+			public struct
+			{
+				public c_int 		sigval_int;
+				public void* 		sigval_ptr;
+			} 					si_value;  /* Signal value */
+		}
+
+		public enum Flags : c_int
+		{
+			/// <summary>
+			/// Default behavior (no flags set).
+			/// </summary>
+			None = 0,
+
+			/// <summary>
+			/// If Signum is SIGCHLD, do not receive notification when child processes stop 
+			/// (i.e., when they receive SIGSTOP, SIGTSTP, SIGTTIN, or SIGTTOU).
+			/// </summary>
+			SA_NOCLDSTOP = 0x00000001,
+
+			/// <summary>
+			/// If Signum is SIGCHLD, do not transform children into zombies when they terminate. 
+			/// Wait() is not required to clean them up.
+			/// </summary>
+			SA_NOCLDWAIT = 0x00000002,
+
+			/// <summary>
+			/// The signal handler takes three arguments (sa_sigaction) instead of one (sa_handler).
+			/// This is crucial for receiving context info like which PID sent the signal.
+			/// </summary>
+			SA_SIGINFO = 0x00000004,
+
+			/// <summary>
+			/// (Legacy) Element used to restore register state. Generally handled by libc.
+			/// </summary>
+			SA_RESTORER = 0x04000000,
+
+			/// <summary>
+			/// Call the signal handler on an alternate signal stack provided by sigaltstack(2).
+			/// If an alternate stack is not available, the default stack is used.
+			/// </summary>
+			SA_ONSTACK = 0x08000000,
+
+			/// <summary>
+			/// Provide behavior compatible with BSD signal semantics by making certain system calls 
+			/// restartable across signals.
+			/// </summary>
+			SA_RESTART = 0x10000000,
+
+			/// <summary>
+			/// Do not prevent the signal from being received from within its own signal handler.
+			/// (Normally, the signal is blocked while the handler runs).
+			/// Synonym: SA_NOMASK.
+			/// </summary>
+			SA_NODEFER = 0x40000000,
+
+			/// <summary>
+			/// Restore the signal action to the default state once the signal handler has been called.
+			/// Synonym: SA_ONESHOT.
+			/// </summary>
+			SA_RESETHAND = 0x80000000
+		}
+
+
+		public function void(SigNum signum) sa_handler;
+		public sigset_t sa_mask;
+		public Flags sa_flags;
+		public function void(SigNum signum, siginfo_t* info, void*) sa_sigaction;
+		public function void() sa_restorer;
+	}
+
+	[CLink]
+	static extern c_int sigaction(SigNum signum, sigaction* act, sigaction* oldact);
+
 
 	Linux.DBus* _userDbus ~ Linux.SdBusUnref(_);
 	Linux.DBusSlot* _monitorSleepSlot ~ SdBusSlotUnref(_);
@@ -482,7 +741,7 @@ class PlatformLinux : PlatformOS
 		}
 	}
 
-	public override int32 Start(EServiceOptions serviceOpts, bool debug, Config cfg)
+	public override int32 Start(EServiceOptions serviceOpts, bool debug)
 	{
 		mixin CheckReturn<T>(Result<T> result)
 		{
@@ -514,7 +773,7 @@ class PlatformLinux : PlatformOS
 
 		case .None:
 			{
-				CheckReturn!(Run(cfg));
+				CheckReturn!(Run());
 			}
 
 		}
@@ -541,7 +800,7 @@ class PlatformLinux : PlatformOS
 		_this.SinkInfoCallback(context, i, eol);
 	}
 
-	protected override Result<void> Run(Config cfg)
+	protected override Result<void> Run()
 	{
 		if (!Linux.IsSystemdAvailable)
 			return .Err;
@@ -656,7 +915,22 @@ class PlatformLinux : PlatformOS
 			Log.Warning("PulseAudio not available, volume controls won't work");
 		}
 
-		return base.Run(cfg);
+		static Self s_instance = null;
+		if (s_instance == null)
+		{
+			s_instance = this;
+			sigaction(.SIGTERM, &sigaction{
+				sa_flags = 0,
+				sa_sigaction = null,
+				sa_handler = (signum) => {
+					Log.Trace("SIGTERM");
+					s_instance.Shutdown();
+				}
+			}, null);
+			Log.Trace("Registered SIGTERM action");
+		}	
+
+		return base.Run();
 	}
 
 	[CLink, CallingConvention(.Stdcall)]

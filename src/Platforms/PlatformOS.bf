@@ -116,9 +116,12 @@ abstract class PlatformOS
 
 	volatile bool _running;
 
+	Config _cfg;
+	public void AssignConfig(Config cfg) => _cfg = cfg;
+
 	public abstract void Update(double deltaTime);
 
-	public abstract int32 Start(EServiceOptions serviceOpts, bool debug, Config cfg);
+	public abstract int32 Start(EServiceOptions serviceOpts, bool debug);
 
 	protected virtual void QueryMonitorState() { }
 
@@ -126,6 +129,9 @@ abstract class PlatformOS
 
 	public void Shutdown()
 	{
+		if (_cfg.ShutdownOnExit)
+			SendEvent(.Shutdown);
+
 		_running = false;
 	}
 
@@ -152,7 +158,7 @@ abstract class PlatformOS
 		}
 	}
 
-	protected virtual Result<void> Run(Config cfg)
+	protected virtual Result<void> Run()
 	{
 		Runtime.Assert(!_running);
 
@@ -161,25 +167,25 @@ abstract class PlatformOS
 
 		MQTTHandler.ECredentials credentials;
 
-		if (cfg.BinaryPwdPath.IsEmpty)
+		if (_cfg.BinaryPwdPath.IsEmpty)
 		{
-			if (cfg.Username.IsEmpty && cfg.Password.IsEmpty)
+			if (_cfg.Username.IsEmpty && _cfg.Password.IsEmpty)
 				credentials = .None;
 			else
-				credentials = .Pwd(cfg.Username, cfg.Password);
+				credentials = .Pwd(_cfg.Username, _cfg.Password);
 		}
 		else
 		{
 			List<uint8> buffer = scope:: .();
-			if (System.IO.File.ReadAll(cfg.BinaryPwdPath, buffer) case .Err(let err))
+			if (System.IO.File.ReadAll(_cfg.BinaryPwdPath, buffer) case .Err(let err))
 			{
-				Log.Error(scope $"Failed to read BinaryPwd ({err}) path: '{cfg.BinaryPwdPath}'");
+				Log.Error(scope $"Failed to read BinaryPwd ({err}) path: '{_cfg.BinaryPwdPath}'");
 				return .Err;
 			}
-			credentials = .Binary(cfg.Username, buffer);
+			credentials = .Binary(_cfg.Username, buffer);
 		}
 
-		if (mqtt.Init(cfg.Address, cfg.ClientId, credentials) case .Err)
+		if (mqtt.Init(_cfg.Address, _cfg.ClientId, credentials) case .Err)
 		{
 			Log.Error("Failed to init MQTT");
 			return .Err;
@@ -223,7 +229,7 @@ abstract class PlatformOS
 		});
 
 		String componentsString = scope .();
-		GenerateComponentsString(componentsString, cfg, _mqttComponents);
+		GenerateComponentsString(componentsString, _cfg, _mqttComponents);
 
 		bool? failedDiscovery = null;
 		mqtt.onConnect.Add(new [?]() => {
@@ -263,8 +269,8 @@ abstract class PlatformOS
 				comp.SubscribeTopic(subscribe);
 			}
 
-			let topicString = FormatPayloadsString(.. scope .(DISCOVERY_TOPIC), cfg, null);
-			let payloadString = FormatPayloadsString(.. scope .(DISCOVERY_PAYLOAD), cfg, componentsString);
+			let topicString = FormatPayloadsString(.. scope .(DISCOVERY_TOPIC), _cfg, null);
+			let payloadString = FormatPayloadsString(.. scope .(DISCOVERY_PAYLOAD), _cfg, componentsString);
 
 			switch (mqtt.SendMessage(topicString, payloadString))
 			{
@@ -377,7 +383,7 @@ abstract class PlatformOS
 
 			Update(deltaTime);
 
-			mqtt.Update(deltaTime, cfg);
+			mqtt.Update(deltaTime, _cfg);
 
 			if (mqtt.IsConnected)
 			{

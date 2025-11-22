@@ -16,7 +16,7 @@ class Program
 	{
 		EServiceOptions opts = .None;
 		bool debug = false;
-		bool force = false; // Force generation of config file
+		bool force = false; // Force regeneration of config file
 
 		for (let a in args)
 		{
@@ -129,14 +129,38 @@ class Program
 				{
 					if (cfg.Load(tempPathBuffer) case .Err(let err))
 					{
-						 Log.Error(scope $"Failed to load config at path: '{tempPathBuffer}");
+						 Log.Error(scope $"Failed to load config at path: '{tempPathBuffer}' ({err})");
 						 return 1;
 					}
 				}
 			case .Install:
 				{
-					cfg.SetDefault();
-					if (cfg.Save(tempPathBuffer, force) case .Err)
+					bool canOverwrite;
+					if (force)
+					{
+						canOverwrite = true;
+						cfg.SetDefault();
+					}
+					else
+					{
+						switch (cfg.Load(tempPathBuffer))
+						{
+						case .Err(let err):
+							{
+								canOverwrite = false;
+
+								if (err not case .FileError(let p0) && p0 != .NotFound)
+								{
+									Log.Error(scope $"Failed to load config at path: '{tempPathBuffer}' ({err})");
+								}
+							}
+
+						case .Ok:
+							canOverwrite = true;
+						}
+					}
+					
+					if (cfg.Save(tempPathBuffer, canOverwrite) case .Err)
 						Log.Error(scope $"Failed to save config at path: '{tempPathBuffer}");
 				}
 			case .Uninstall:
@@ -149,7 +173,8 @@ class Program
 #elif BF_PLATFORM_LINUX
 		platform = scope PlatformLinux();
 #endif
-		
-		return platform.Start(opts, debug, cfg);
+
+		platform.AssignConfig(cfg);
+		return platform.Start(opts, debug);
 	}
 }
