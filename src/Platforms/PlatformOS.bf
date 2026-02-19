@@ -121,7 +121,10 @@ abstract class PlatformOS
 
 	public abstract void Update(double deltaTime);
 
-	public abstract int32 Start(EServiceOptions serviceOpts, bool debug);
+	public abstract Result<void> Install();
+	public abstract Result<void> Uninstall();
+
+	public abstract int32 Start(bool debug);
 
 	protected virtual void QueryMonitorState() { }
 

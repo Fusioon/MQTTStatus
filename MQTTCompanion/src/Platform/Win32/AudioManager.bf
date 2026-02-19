@@ -1,3 +1,5 @@
+#if BF_PLATFORM_WINDOWS
+
 using System;
 
 using System;
@@ -298,3 +300,5 @@ static class AudioManager
 		return .Ok;
 	}
 }
+
+#endif // BF_PLATFORM_WINDOWS

@@ -1,3 +1,5 @@
+#if BF_PLATFORM_WINDOWS
+
 using System;
 using System.Interop;
 
@@ -191,3 +193,5 @@ struct PROPVARIANT
 	};
 	public DECIMAL decVal;
 }
+
+#endif // BF_PLATFORM_WINDOWS

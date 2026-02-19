@@ -22,3 +22,8 @@ LibPaths = ["runtimeobject.lib", "Ole32.lib", "User32.lib", "Advapi32.lib", "uui
 [Configs.Test.Win64]
 TargetDirectory = "$(WorkspaceDir)/dist"
 LibPaths = ["runtimeobject.lib", "Ole32.lib", "User32.lib", "Advapi32.lib", "uuid.lib"]
+
+[[ProjectFolder.Items]]
+Type = "Folder"
+Path = "assets"
+AutoInclude = true

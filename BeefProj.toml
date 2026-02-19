@@ -36,8 +36,3 @@ TargetName = "$(ProjectName)_x64"
 LibPaths = ["$(WorkspaceDir)/libs/linux/x64/libpaho-mqtt3c.so.1"]
 PostBuildCmds = ["CopyFilesIfNewer(\"$(WorkspaceDir)/libs/linux/x64/libpaho-mqtt3c.so.1\", \"$(TargetDir)\")"]
 DebugWorkingDirectory = "$(WorkspaceDir)/dist/linux64"
-
-[[ProjectFolder.Items]]
-Type = "Folder"
-Path = "assets"
-AutoInclude = true

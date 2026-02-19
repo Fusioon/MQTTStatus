@@ -1,3 +1,5 @@
+#if BF_PLATFORM_WINDOWS
+
 using System;
 using System.Interop;
 
@@ -311,3 +313,5 @@ public struct GenericComPtr : ComPtr, IUnknown
 		return (.)System.Threading.Interlocked.Decrement(ref refCount);
 	}
 }
+
+#endif // BF_PLATFORM_WINDOWS

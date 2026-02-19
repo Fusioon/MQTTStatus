@@ -1,5 +1,6 @@
 FileVersion = 1
 Projects = {MQTTStatus = {Path = "."}, MQTTCommon = {Path = "MQTTCommon"}}
+ExtraPlatforms = ["Win64"]
 
 [Workspace]
 StartupProject = "MQTTStatus"

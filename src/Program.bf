@@ -175,6 +175,18 @@ class Program
 #endif
 
 		platform.AssignConfig(cfg);
-		return platform.Start(opts, debug);
+
+		switch (opts)
+		{
+		case .Install:
+			return platform.Install() case .Ok ? 0 : 1;
+
+		case .Uninstall:
+			return platform.Uninstall() case .Ok ? 0 : 1;
+
+		case .None:
+			return platform.Start(debug);
+		}
+
 	}
 }

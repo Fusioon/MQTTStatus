@@ -1,5 +1,10 @@
 FileVersion = 1
 Projects = {MQTTCompanion = {Path = "."}, MQTTCommon = {Path = "../MQTTCommon"}}
+ExtraPlatforms = ["Win64"]
 
 [Workspace]
 StartupProject = "MQTTCompanion"
+PreprocessorMacros = ["WITH_KDE"]
+
+[[Workspace.DistinctOptions]]
+Filter = ""

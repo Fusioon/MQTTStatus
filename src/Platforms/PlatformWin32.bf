@@ -94,11 +94,11 @@ class PlatformWin32 : PlatformOS
 		if (!IsUserAdmin())
 		{
 			Log.Error(error);
-			return 2;
+			return .Err;
 		}
 	}
 
-	int32 InstallService()
+	Result<void> InstallService()
 	{
 		CheckAdminRightsReturn!("Application requires administrator rights to add/install service.");
 
@@ -106,7 +106,7 @@ class PlatformWin32 : PlatformOS
 		if (schSCManager == 0)
 		{
 			Log.Error(scope $"OpenSCManager failed ({Windows.GetLastError()})");
-			return 1;
+			return .Err;
 		}
 		defer CloseServiceHandle(schSCManager);
 
@@ -130,15 +130,15 @@ class PlatformWin32 : PlatformOS
 		if (schService == 0)
 		{
 			Log.Error(scope $"Failed to create service ({Windows.GetLastError()})");
-			return 1;
+			return .Err;
 		}
 
 		Log.Success("Service registered");
 		CloseServiceHandle(schService);
-		return 0;
+		return .Ok;
 	}
 
-	int32 UninstallService()
+	Result<void> UninstallService()
 	{
 		CheckAdminRightsReturn!("Application requires administrator rights to remove/uninstall service.");
 
@@ -146,7 +146,7 @@ class PlatformWin32 : PlatformOS
 		if (schSCManager == 0)
 		{
 			Log.Error(scope $"OpenSCManager failed ({Windows.GetLastError()})");
-			return 1;
+			return .Err;
 		}
 		defer CloseServiceHandle(schSCManager);
 
@@ -154,18 +154,18 @@ class PlatformWin32 : PlatformOS
 		if (schService == 0)
 		{
 			Log.Error(scope $"OpenService failed ({Windows.GetLastError()})");
-			return 1;
+			return .Err;
 		}
 		defer CloseServiceHandle(schService);
 
 	    if (!DeleteService(schService))
 		{
 			Log.Error(scope $"DeleteService failed ({Windows.GetLastError()})");
-			return 1;
+			return .Err;
 		}
 
 		Log.Success("Service removed");
-		return 0;
+		return .Ok;
 	}
 
 	static uint32 ServiceControlHandler(uint32 control, uint32 eventType, void* eventData, void* context)
@@ -263,10 +263,9 @@ class PlatformWin32 : PlatformOS
 
 		Log.Success("Service started");
 
-		Try!(_ipcManager.Init());
+		TrySilent!(_ipcManager.Init());
 
-		_running = true;
-		if (base.Run(_cfg) case .Err)
+		if (base.Run() case .Err)
 		{
 			_serviceStatus.dwWin32ExitCode = 1;
 		}
@@ -303,12 +302,12 @@ class PlatformWin32 : PlatformOS
 			{
 				_serviceStatus.dwCurrentState = SERVICE_STOP_PENDING;
 				SetServiceStatus(_hStatus, &_serviceStatus);
-				_running = false;
+				Shutdown();
 			}
 		case SERVICE_CONTROL_PRESHUTDOWN:
 			{
 				SendEvent(.Shutdown);
-				_running = false;
+				Shutdown();
 			}
 
 		case SERVICE_CONTROL_POWEREVENT:
@@ -384,45 +383,41 @@ class PlatformWin32 : PlatformOS
 		return NO_ERROR;
 	}
 
-	public override int32 Start(EServiceOptions serviceOpts, bool debug, Config cfg)
+	public override Result<void> Install()
 	{
-		switch (serviceOpts)
+		return InstallService();
+	}
+
+	public override Result<void> Uninstall()
+	{
+		return UninstallService();
+	}
+
+	public override int32 Start(bool debug)
+	{
+		Runtime.Assert(sInstance == null);
+		sInstance = this;
+
+		_debug = debug;
+		if (debug)
 		{
-		case .Install:
-			{
-				return InstallService();
-			}
-		case .Uninstall:
-			{
-				return UninstallService();
-			}
-		case .None:
-			{
-				Runtime.Assert(sInstance == null);
-				sInstance = this;
-				_cfg = cfg;
-
-				_debug = debug;
-				if (!debug)
-				{
-					SERVICE_TABLE_ENTRYW[2] serviceTable = .(.{
-						lpServiceName = SERVICE_NAME.ToScopedNativeWChar!(),
-						lpServiceProc = => ServiceMain
-					}, default);
-					Log.Trace("StartServiceCtrlDispatcher");
-					StartServiceCtrlDispatcherW(&serviceTable);
-					return 0;
-				}
-
-				ServiceMain(0, null);
-				return 0;
-			}
+			ServiceMain(0, null);
+			return 0;
 		}
+
+		SERVICE_TABLE_ENTRYW[2] serviceTable = .(.{
+			lpServiceName = SERVICE_NAME.ToScopedNativeWChar!(),
+			lpServiceProc = => ServiceMain
+		}, default);
+		Log.Trace("StartServiceCtrlDispatcher");
+		StartServiceCtrlDispatcherW(&serviceTable);
+		return 0;
+		
 	}
 	
 	public override Result<void> HandleClientCommand(eClientCommand cmd)
 	{
-		_ipcManager.Send(cmd);
+		return _ipcManager.Send(cmd);
 	}
 	
 }

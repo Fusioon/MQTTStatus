@@ -1,3 +1,5 @@
+#if BF_PLATFORM_WINDOWS
+
 using System;
 using System.Interop;
 
@@ -52,3 +54,5 @@ static
 		result.Get()
 	}
 }
+
+#endif // BF_PLATFORM_WINDOWS

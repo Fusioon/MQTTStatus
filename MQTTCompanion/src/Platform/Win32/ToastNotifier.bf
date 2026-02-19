@@ -1,3 +1,5 @@
+#if BF_PLATFORM_WINDOWS
+
 using System;
 using System.Interop;
 
@@ -493,3 +495,5 @@ class ToastNotifier
 		return .Ok;
 	}
 }
+
+#endif // BF_PLATFORM_WINDOWS
